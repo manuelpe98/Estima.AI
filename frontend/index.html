@@ -22,6 +22,16 @@
   .radio-group { display: flex; gap: 1.2rem; margin-top: .4rem; }
   small.hint { color: #64717a; }
   .param-row { display: grid; grid-template-columns: 1fr 140px; gap: .6rem; align-items: center; }
+  h3 { font-size: .95rem; margin: 1rem 0 .3rem; }
+  table.edit-table { width: 100%; border-collapse: collapse; margin-top: .3rem; font-size: .85rem; }
+  table.edit-table th { text-align: left; font-size: .78rem; color: #64717a; padding: .2rem .3rem; }
+  table.edit-table td { padding: .15rem .3rem; }
+  table.edit-table input, table.edit-table select { padding: .3rem; font-size: .85rem; }
+  table.edit-table input[type=number] { width: 90px; }
+  table.edit-table input[type=text] { width: 100%; min-width: 100px; }
+  button.small { margin: 0; padding: .25rem .5rem; font-size: .78rem; background: #a12626; }
+  button.secondary.small-add { margin-top: .4rem; padding: .35rem .7rem; font-size: .82rem; }
+  .note-box { font-size: .85rem; background: #fff8e6; color: #7a5b00; border-radius: 6px; padding: .5rem .7rem; margin-top: .5rem; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -67,10 +77,47 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
   pagine in sequenza secondo l'ordine di selezione)</label>
   <input type="number" id="legendPage" value="1" />
 
-  <button id="btnValidate">Verifica elaborati</button>
+  <button id="btnValidate">Verifica elaborati ed estrai vani</button>
   <div id="validateMsg"></div>
   <small class="hint">Ogni singolo PDF caricato deve essere vettoriale, riportare la scala (es. "SCALA 1:100") ed
   essere quotato: in caso contrario il caricamento viene rifiutato.</small>
+</section>
+
+<section id="step1b" style="display:none">
+  <h2>3. Vani, aperture ed elementi rilevati — verifica prima di procedere</h2>
+  <small class="hint">Il rilievo automatico da disegni CAD dettagliati può occasionalmente unire ambienti vicini o
+  sbagliare qualche misura: controlla i valori qui sotto e correggili se necessario (ogni cella è modificabile,
+  puoi aggiungere o eliminare righe) prima di procedere al calcolo dei prezzi. Per una ristrutturazione, il
+  confronto stato di fatto/progetto usato per le demolizioni resta quello rilevato automaticamente.</small>
+  <div id="extractNotes"></div>
+
+  <h3>Vani (stato di progetto)</h3>
+  <table class="edit-table" id="roomsTable">
+    <thead><tr><th>Etichetta</th><th>Superficie (m²)</th><th>Perimetro (m)</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <button type="button" class="secondary small-add" id="btnAddRoom">+ Aggiungi vano</button>
+
+  <h3>Aperture (porte e finestre)</h3>
+  <table class="edit-table" id="openingsTable">
+    <thead><tr><th>Codice</th><th>Tipo</th><th>Conteggio</th><th>Larghezza (cm)</th><th>Altezza (cm)</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <button type="button" class="secondary small-add" id="btnAddOpening">+ Aggiungi apertura</button>
+
+  <h3>Elementi strutturali (pilastri/travi)</h3>
+  <table class="edit-table" id="structTable">
+    <thead><tr><th>Codice</th><th>Tipo</th><th>Conteggio</th><th>Dim. 1 (cm)</th><th>Dim. 2 (cm)</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <button type="button" class="secondary small-add" id="btnAddStruct">+ Aggiungi elemento</button>
+
+  <label>Sedime edificio (m², usato per il volume di scavo)</label>
+  <input type="number" step="0.01" id="footprintArea" value="0">
+  <label>Superficie di copertura in pianta (m², prima della correzione per la falda)</label>
+  <input type="number" step="0.01" id="roofArea" value="0">
+
+  <button id="btnConfirmVani">Conferma vani e procedi</button>
 </section>
 
 <section id="step2" style="display:none">
@@ -120,6 +167,88 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
 const API = ""; // stesso host/porta del backend: il sito e le API sono un unico servizio
 let currentQuestions = [];
 let currentParams = [];
+let currentRooms = [];
+let currentOpenings = [];
+let currentStruct = [];
+let currentRoomsSdf = [];
+let currentConfronto = [];
+let currentNotes = [];
+let currentValidationMessages = [];
+
+function renderRoomsTable() {
+  const tbody = document.querySelector("#roomsTable tbody");
+  tbody.innerHTML = "";
+  currentRooms.forEach((r, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><input type="text" value="${(r.label||"").replace(/"/g,'&quot;')}" data-f="label"></td>
+      <td><input type="number" step="0.01" value="${r.area_m2 ?? 0}" data-f="area_m2"></td>
+      <td><input type="number" step="0.01" value="${r.perimeter_m ?? 0}" data-f="perimeter_m"></td>
+      <td><button type="button" class="small">×</button></td>`;
+    tr.querySelectorAll("input").forEach(inp => inp.onchange = () => {
+      const f = inp.dataset.f;
+      currentRooms[i][f] = f === "label" ? inp.value : parseFloat(inp.value) || 0;
+    });
+    tr.querySelector("button").onclick = () => { currentRooms.splice(i, 1); renderRoomsTable(); };
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById("btnAddRoom").onclick = () => {
+  currentRooms.push({ label: "NUOVO VANO", area_m2: 0, perimeter_m: 0, source: "aggiunto manualmente" });
+  renderRoomsTable();
+};
+
+function renderOpeningsTable() {
+  const tbody = document.querySelector("#openingsTable tbody");
+  tbody.innerHTML = "";
+  currentOpenings.forEach((o, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><input type="text" value="${(o.code||"").replace(/"/g,'&quot;')}" data-f="code"></td>
+      <td><select data-f="kind"><option value="porta"${o.kind==="porta"?" selected":""}>porta</option>
+        <option value="finestra"${o.kind==="finestra"?" selected":""}>finestra</option></select></td>
+      <td><input type="number" value="${o.count ?? 1}" data-f="count"></td>
+      <td><input type="number" step="0.1" value="${o.width_cm ?? ""}" data-f="width_cm"></td>
+      <td><input type="number" step="0.1" value="${o.height_cm ?? ""}" data-f="height_cm"></td>
+      <td><button type="button" class="small">×</button></td>`;
+    tr.querySelectorAll("input,select").forEach(inp => inp.onchange = () => {
+      const f = inp.dataset.f;
+      if (f === "code" || f === "kind") currentOpenings[i][f] = inp.value;
+      else currentOpenings[i][f] = inp.value === "" ? null : parseFloat(inp.value) || 0;
+    });
+    tr.querySelector("button").onclick = () => { currentOpenings.splice(i, 1); renderOpeningsTable(); };
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById("btnAddOpening").onclick = () => {
+  currentOpenings.push({ code: "P" + (currentOpenings.length + 1), kind: "porta", count: 1,
+    width_cm: null, height_cm: null, source: "aggiunto manualmente" });
+  renderOpeningsTable();
+};
+
+function renderStructTable() {
+  const tbody = document.querySelector("#structTable tbody");
+  tbody.innerHTML = "";
+  currentStruct.forEach((e, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><input type="text" value="${(e.code||"").replace(/"/g,'&quot;')}" data-f="code"></td>
+      <td><select data-f="kind"><option value="pilastro"${e.kind==="pilastro"?" selected":""}>pilastro</option>
+        <option value="trave"${e.kind==="trave"?" selected":""}>trave</option></select></td>
+      <td><input type="number" value="${e.count ?? 1}" data-f="count"></td>
+      <td><input type="number" step="0.1" value="${e.dim1_cm ?? ""}" data-f="dim1_cm"></td>
+      <td><input type="number" step="0.1" value="${e.dim2_cm ?? ""}" data-f="dim2_cm"></td>
+      <td><button type="button" class="small">×</button></td>`;
+    tr.querySelectorAll("input,select").forEach(inp => inp.onchange = () => {
+      const f = inp.dataset.f;
+      if (f === "code" || f === "kind") currentStruct[i][f] = inp.value;
+      else currentStruct[i][f] = inp.value === "" ? null : parseFloat(inp.value) || 0;
+    });
+    tr.querySelector("button").onclick = () => { currentStruct.splice(i, 1); renderStructTable(); };
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById("btnAddStruct").onclick = () => {
+  currentStruct.push({ code: "PL" + (currentStruct.length + 1), kind: "pilastro", count: 1, dim1_cm: null, dim2_cm: null });
+  renderStructTable();
+};
 
 function toggleAltro(qid) {
   const checked = document.querySelector(`input[name="${qid}"]:checked`);
@@ -180,8 +309,59 @@ document.getElementById("btnValidate").onclick = async () => {
   }
   msgEl.textContent = report.join("\n");
   msgEl.className = "msg " + (allOk ? "ok" : "err");
-  document.getElementById("step2").style.display = allOk ? "block" : "none";
-  if (allOk) loadPrezzari();
+  document.getElementById("step1b").style.display = "none";
+  document.getElementById("step2").style.display = "none";
+  if (!allOk) return;
+
+  // Elaborati conformi: estrai vani/aperture/elementi (senza calcolare ancora prezzi)
+  msgEl.textContent += "\n\nEstrazione di vani, aperture ed elementi in corso (può richiedere qualche secondo sui disegni più dettagliati)...";
+  const fd2 = new FormData();
+  fd2.append("tipo_intervento", tipo);
+  progetto.forEach(f => fd2.append("file_progetto", f));
+  sdf.forEach(f => fd2.append("file_stato_di_fatto", f));
+  strutturale.forEach(f => fd2.append("file_strutturale", f));
+  copertura.forEach(f => fd2.append("file_copertura", f));
+  fd2.append("legend_page", document.getElementById("legendPage").value || "1");
+  fd2.append("structural_legend_page", document.getElementById("structuralLegendPage").value || "1");
+
+  try {
+    const res2 = await fetch(`${API}/api/estrai-vani`, { method: "POST", body: fd2 });
+    const data2 = await res2.json();
+    if (!res2.ok) {
+      msgEl.textContent = (data2.messages || [data2.error || "Errore durante l'estrazione"]).join("\n");
+      msgEl.className = "msg err";
+      return;
+    }
+    currentRooms = data2.rooms;
+    currentOpenings = data2.openings;
+    currentStruct = data2.structural_elements;
+    currentRoomsSdf = data2.rooms_sdf || [];
+    currentConfronto = data2.confronto || [];
+    currentNotes = data2.note_metodologiche || [];
+    currentValidationMessages = data2.validation_messages || [];
+
+    renderRoomsTable();
+    renderOpeningsTable();
+    renderStructTable();
+    document.getElementById("footprintArea").value = data2.footprint_area_m2 || 0;
+    document.getElementById("roofArea").value = data2.roof_area_m2 || 0;
+    const notesEl = document.getElementById("extractNotes");
+    notesEl.innerHTML = currentNotes.length
+      ? `<div class="note-box">${currentNotes.map(n => n.replace(/</g,'&lt;')).join("\n\n")}</div>` : "";
+
+    msgEl.textContent = report.join("\n") + `\n\nEstratti ${currentRooms.length} vani, ${currentOpenings.length} aperture, ${currentStruct.length} elementi strutturali.`;
+    msgEl.className = "msg ok";
+    document.getElementById("step1b").style.display = "block";
+  } catch (e) {
+    msgEl.textContent = "Errore durante l'estrazione: " + e;
+    msgEl.className = "msg err";
+  }
+};
+
+document.getElementById("btnConfirmVani").onclick = () => {
+  document.getElementById("step2").style.display = "block";
+  loadPrezzari();
+  document.getElementById("step2").scrollIntoView({ behavior: "smooth" });
 };
 
 async function loadPrezzari() {
@@ -280,10 +460,15 @@ document.getElementById("btnGenerate").onclick = async () => {
 
   const fd = new FormData();
   fd.append("tipo_intervento", tipoIntervento());
-  Array.from(document.getElementById("fileProgetto").files).forEach(f => fd.append("file_progetto", f));
-  Array.from(document.getElementById("fileStatoDiFatto").files).forEach(f => fd.append("file_stato_di_fatto", f));
-  Array.from(document.getElementById("fileStrutturale").files).forEach(f => fd.append("file_strutturale", f));
-  Array.from(document.getElementById("fileCopertura").files).forEach(f => fd.append("file_copertura", f));
+  fd.append("rooms_json", JSON.stringify(currentRooms));
+  fd.append("openings_json", JSON.stringify(currentOpenings));
+  fd.append("structural_elements_json", JSON.stringify(currentStruct));
+  fd.append("footprint_area_m2", document.getElementById("footprintArea").value || "0");
+  fd.append("roof_area_m2", document.getElementById("roofArea").value || "0");
+  fd.append("rooms_sdf_json", JSON.stringify(currentRoomsSdf));
+  fd.append("confronto_json", JSON.stringify(currentConfronto));
+  fd.append("note_metodologiche_json", JSON.stringify(currentNotes));
+  fd.append("validation_messages_json", JSON.stringify(currentValidationMessages));
 
   fd.append("nome_progetto", document.getElementById("nomeProgetto").value);
   fd.append("committente", document.getElementById("committente").value);
@@ -292,8 +477,6 @@ document.getElementById("btnGenerate").onclick = async () => {
   fd.append("answers_json", JSON.stringify(answers));
   fd.append("parametri_json", JSON.stringify(parametri));
   fd.append("prezzario_id", document.getElementById("prezzarioSelect").value || "");
-  fd.append("legend_page", document.getElementById("legendPage").value || "1");
-  fd.append("structural_legend_page", document.getElementById("structuralLegendPage").value || "1");
 
   const msgEl = document.getElementById("generateMsg");
   msgEl.textContent = "Generazione in corso...";

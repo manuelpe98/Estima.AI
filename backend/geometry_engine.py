@@ -21,8 +21,8 @@ dichiarate come tali.
 from __future__ import annotations
 import re
 import fitz
-from shapely.geometry import Polygon, Point
-from shapely.ops import unary_union
+from shapely.geometry import Polygon, Point, LineString, MultiLineString
+from shapely.ops import unary_union, polygonize
 from .models import RoomQuantity, OpeningQuantity, TaggedElement
 
 PT_TO_PAPER_MM = 25.4 / 72.0
@@ -30,12 +30,29 @@ PT_TO_PAPER_MM = 25.4 / 72.0
 ROOM_LABEL_HINTS = [
     "SOGGIORNO", "CUCINA", "CAMERA", "BAGNO", "STUDIO", "INGRESSO", "RIPOSTIGLIO",
     "CORRIDOIO", "DISIMPEGNO", "TERRAZZO", "BALCONE", "LAVANDERIA", "GARAGE",
-    "CANTINA", "SALA", "TAVERNA", "COPERTURA", "TETTO",
+    "AUTORIMESSA", "LOCALE TECNICO", "CANTINA", "SALA", "TAVERNA", "COPERTURA", "TETTO",
 ]
+# Le etichette di vano vengono cercate per intera parola (\b...\b), non come
+# semplice sottostringa: altrimenti hint corti come "STUDIO" combaciano anche
+# dentro testi non pertinenti (es. l'indirizzo email nel cartiglio del
+# disegno, "...@studiope.it", contiene letteralmente "studio").
+_ROOM_LABEL_PATTERNS = [re.compile(rf"\b{re.escape(h)}\b") for h in ROOM_LABEL_HINTS]
+# Le vere etichette di vano sono di solito diciture brevi (1-3 parole): un
+# testo più lungo che contiene comunque una delle parole chiave (es. una
+# didascalia o un titolo di tavola) non viene considerato un'etichetta di vano.
+_MAX_ROOM_LABEL_LEN = 28
+
 MIN_ROOM_AREA_M2 = 0.8
 MAX_ROOM_AREA_M2 = 400.0
 
 TAG_CODE_RE = re.compile(r"^([A-Z]{1,3})\s*0*([0-9]+)$")
+
+
+def _is_room_label(text: str) -> bool:
+    if len(text) > _MAX_ROOM_LABEL_LEN:
+        return False
+    upper = text.upper()
+    return any(p.search(upper) for p in _ROOM_LABEL_PATTERNS)
 
 
 def pt_to_m(length_pt: float, scale_denominator: int) -> float:
@@ -85,6 +102,43 @@ def _all_closed_polygons(page: "fitz.Page") -> list[Polygon]:
     return out
 
 
+def _planar_faces(page: "fitz.Page") -> list[Polygon]:
+    """Ricostruisce le aree chiuse (facce) formate dall'INTERO reticolo di
+    segmenti del disegno (muri, soglie, ecc.), non solo i percorsi già chiusi
+    singolarmente. È necessario perché molti export CAD reali disegnano le
+    pareti come tanti segmenti/rettangoli separati (uno per muro) invece che
+    come un unico contorno chiuso per ciascun vano: in quel caso il vano
+    esiste solo come spazio VUOTO delimitato da più elementi, non come un
+    singolo oggetto vettoriale chiuso. Si raccolgono tutti i segmenti
+    (incluse le rette di rettangoli e le corde delle curve), si "nodano" con
+    un'unione geometrica e si poligonalizza il risultato per ottenere le
+    facce chiuse del disegno."""
+    segments: list[LineString] = []
+    for d in page.get_drawings():
+        for item in d.get("items", []):
+            op = item[0]
+            if op == "l":
+                p1, p2 = item[1], item[2]
+                if (p1.x, p1.y) != (p2.x, p2.y):
+                    segments.append(LineString([(p1.x, p1.y), (p2.x, p2.y)]))
+            elif op == "re":
+                r = item[1]
+                pts = [(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1), (r.x0, r.y0)]
+                for i in range(4):
+                    segments.append(LineString([pts[i], pts[i + 1]]))
+            elif op == "c":
+                p1, p4 = item[1], item[4]
+                if (p1.x, p1.y) != (p4.x, p4.y):
+                    segments.append(LineString([(p1.x, p1.y), (p4.x, p4.y)]))
+    if not segments:
+        return []
+    try:
+        noded = unary_union(MultiLineString(segments))
+        return [f for f in polygonize(noded) if f.is_valid and f.area > 0]
+    except Exception:
+        return []
+
+
 def _text_spans(page: "fitz.Page") -> list[dict]:
     spans = []
     d = page.get_text("dict")
@@ -102,26 +156,45 @@ def _bbox_center(bbox):
     return ((x0 + x1) / 2, (y0 + y1) / 2)
 
 
-def extract_rooms(doc: "fitz.Document", scale_denominator: int, plan_page: int = 0) -> list[RoomQuantity]:
-    page = doc[plan_page]
-    polygons = _all_closed_polygons(page)
+def _candidates_at_point(polygons: list[Polygon], point: Point, scale_denominator: int
+                          ) -> list[tuple[float, Polygon]]:
+    out = []
+    for poly in polygons:
+        if not poly.contains(point):
+            continue
+        area_m2 = sqpt_to_m2(poly.area, scale_denominator)
+        if MIN_ROOM_AREA_M2 <= area_m2 <= MAX_ROOM_AREA_M2:
+            out.append((area_m2, poly))
+    return out
+
+
+def _extract_rooms_impl(page: "fitz.Page", scale_denominator: int
+                         ) -> tuple[list[RoomQuantity], list[Polygon]]:
+    # Strategia a due livelli: prima si cerca tra i percorsi GIA' chiusi nel
+    # disegno (preciso, funziona per la maggior parte dei disegni, inclusi
+    # quelli con linee interne come i colmi di falda che altrimenti
+    # spezzerebbero un contorno unico in più facce più piccole). Solo se per
+    # una specifica etichetta non si trova nessun candidato plausibile in
+    # questo modo — il caso tipico di export CAD dettagliati dove il vano
+    # non è un unico oggetto chiuso ma lo spazio tra più muri separati — si
+    # ricostruiscono le facce dall'intero reticolo di segmenti, calcolate
+    # una sola volta e riusate per le etichette successive.
+    closed_polys = _all_closed_polygons(page)
     spans = _text_spans(page)
-    room_labels = [
-        s for s in spans
-        if any(hint in s["text"].upper() for hint in ROOM_LABEL_HINTS)
-    ]
+    room_labels = [s for s in spans if _is_room_label(s["text"])]
+
+    planar_polys: list[Polygon] | None = None
 
     rooms: list[RoomQuantity] = []
+    room_polys: list[Polygon] = []
     for s in room_labels:
         cx, cy = _bbox_center(s["bbox"])
         point = Point(cx, cy)
-        candidates = []
-        for poly in polygons:
-            if not poly.contains(point):
-                continue
-            area_m2 = sqpt_to_m2(poly.area, scale_denominator)
-            if MIN_ROOM_AREA_M2 <= area_m2 <= MAX_ROOM_AREA_M2:
-                candidates.append((area_m2, poly))
+        candidates = _candidates_at_point(closed_polys, point, scale_denominator)
+        if not candidates:
+            if planar_polys is None:
+                planar_polys = _planar_faces(page)
+            candidates = _candidates_at_point(planar_polys, point, scale_denominator)
         if not candidates:
             continue
         # il poligono più piccolo che contiene l'etichetta è il vano stesso
@@ -131,6 +204,12 @@ def extract_rooms(doc: "fitz.Document", scale_denominator: int, plan_page: int =
         perim_m = pt_to_m(best_poly.length, scale_denominator)
         rooms.append(RoomQuantity(label=s["text"], area_m2=round(area_m2, 2),
                                    perimeter_m=round(perim_m, 2)))
+        room_polys.append(best_poly)
+    return rooms, room_polys
+
+
+def extract_rooms(doc: "fitz.Document", scale_denominator: int, plan_page: int = 0) -> list[RoomQuantity]:
+    rooms, _ = _extract_rooms_impl(doc[plan_page], scale_denominator)
     return rooms
 
 
@@ -149,30 +228,7 @@ def rooms_with_polygons(doc: "fitz.Document", scale_denominator: int, plan_page:
                          ) -> tuple[list[RoomQuantity], list[Polygon]]:
     """Come extract_rooms ma ritorna anche i poligoni geometrici (serve per il
     calcolo del sedime edificio)."""
-    page = doc[plan_page]
-    polygons = _all_closed_polygons(page)
-    spans = _text_spans(page)
-    room_labels = [s for s in spans if any(h in s["text"].upper() for h in ROOM_LABEL_HINTS)]
-
-    rooms: list[RoomQuantity] = []
-    room_polys: list[Polygon] = []
-    for s in room_labels:
-        cx, cy = _bbox_center(s["bbox"])
-        point = Point(cx, cy)
-        candidates = []
-        for poly in polygons:
-            if poly.contains(point):
-                area_m2 = sqpt_to_m2(poly.area, scale_denominator)
-                if MIN_ROOM_AREA_M2 <= area_m2 <= MAX_ROOM_AREA_M2:
-                    candidates.append((area_m2, poly))
-        if not candidates:
-            continue
-        area_m2, best_poly = min(candidates, key=lambda t: t[0])
-        perim_m = pt_to_m(best_poly.length, scale_denominator)
-        rooms.append(RoomQuantity(label=s["text"], area_m2=round(area_m2, 2),
-                                   perimeter_m=round(perim_m, 2)))
-        room_polys.append(best_poly)
-    return rooms, room_polys
+    return _extract_rooms_impl(doc[plan_page], scale_denominator)
 
 
 def extract_tagged_elements(

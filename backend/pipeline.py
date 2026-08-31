@@ -1,11 +1,27 @@
 """Orchestrazione end-to-end: dai documenti caricati al computo metrico
 estimativo completo (finiture, strutture, scavi, copertura, impianti a corpo
-e, per le ristrutturazioni, confronto stato di fatto / stato di progetto)."""
+e, per le ristrutturazioni, confronto stato di fatto / stato di progetto).
+
+La pipeline è divisa in due fasi, così l'utente può VERIFICARE e correggere
+i vani/aperture/elementi rilevati automaticamente prima che vengano usati per
+calcolare i prezzi (richiesto dopo aver verificato che, su disegni CAD reali
+molto dettagliati, il rilievo geometrico automatico non è sempre preciso al
+100% — es. due ambienti attigui possono risultare uniti in un'unica area):
+
+- `extract_quantities(...)`: dai PDF ai vani/aperture/elementi strutturali
+  rilevati (nessun prezzo, nessun file generato). Usata dall'endpoint
+  `/api/estrai-vani` per mostrare all'utente cosa è stato riconosciuto.
+- `build_from_quantities(...)`: da vani/aperture/elementi (eventualmente
+  corretti a mano dall'utente) ai file finali (Excel, PriMus, Word). Usata
+  dall'endpoint `/api/generate`.
+- `run_pipeline(...)`: le esegue entrambe in sequenza con la firma originale,
+  usata dai test e da chi non ha bisogno del passaggio di verifica intermedio.
+"""
 from __future__ import annotations
 from dataclasses import dataclass, field
 import fitz
 
-from .models import ValidationResult, ProjectMeta, RoomComparison
+from .models import ValidationResult, ProjectMeta, RoomComparison, RoomQuantity, OpeningQuantity, TaggedElement
 from .pdf_validation import validate_pdf, find_scale_on_page
 from .geometry_engine import (
     rooms_with_polygons, extract_openings, extract_tagged_elements,
@@ -18,6 +34,28 @@ from .prezzario import db as prezzario_db
 from .prezzario.matching import build_computo
 from .output.excel_generator import build_excel, build_primus_export
 from .output.word_generator import build_word
+
+
+@dataclass
+class ExtractionResult:
+    ok: bool = True
+    errors: list[str] = field(default_factory=list)
+    validations: dict[str, ValidationResult] = field(default_factory=dict)
+    rooms: list[RoomQuantity] = field(default_factory=list)
+    openings: list[OpeningQuantity] = field(default_factory=list)
+    structural_elements: list[TaggedElement] = field(default_factory=list)
+    footprint_area_m2: float = 0.0
+    roof_area_m2: float = 0.0
+    rooms_sdf: list[RoomQuantity] | None = None
+    confronto: list[RoomComparison] = field(default_factory=list)
+    note_metodologiche: list[str] = field(default_factory=list)
+
+    @property
+    def validation_messages(self) -> list[str]:
+        out = []
+        for v in self.validations.values():
+            out.extend(v.messages)
+        return out
 
 
 @dataclass
@@ -55,27 +93,19 @@ def _extract_roof_area(rooms_with_polys, hint_words=("COPERTURA", "TETTO")):
     return 0.0
 
 
-def run_pipeline(
+def extract_quantities(
     tipo_intervento: str,
     pdf_progetto_path: str,
-    db_path: str,
-    meta: ProjectMeta,
-    answers: dict[str, str],
-    parametri_overrides: dict[str, float],
     pdf_stato_di_fatto_path: str | None = None,
     pdf_strutturale_path: str | None = None,
     pdf_copertura_path: str | None = None,
-    capitolato_text: str | None = None,
-    prezzario_id: int | None = None,
     legend_page: int | None = 1,
     structural_legend_page: int | None = 1,
-    excel_out: str = "computo.xlsx",
-    primus_out: str = "elenco_prezzi_primus.xlsx",
-    word_out: str = "computo.docx",
-) -> PipelineResult:
-    result = PipelineResult()
-    meta.tipo_intervento = tipo_intervento
-    parametri = merge_parametri(parametri_overrides)
+) -> ExtractionResult:
+    """Dai PDF caricati (già validi/uniti) ai vani, aperture ed elementi
+    strutturali rilevati. Non calcola prezzi né genera file: serve a mostrare
+    all'utente cosa è stato riconosciuto, prima che lo confermi o lo corregga."""
+    result = ExtractionResult()
 
     # --- Validazione di tutti i PDF forniti ---
     v_progetto = validate_pdf(pdf_progetto_path)
@@ -145,7 +175,7 @@ def run_pipeline(
             "in questo caso ricarica selezionando per primo il file la cui prima pagina è la pianta); "
             "(2) le etichette dei vani nel disegno non usano una delle diciture riconosciute "
             f"({', '.join(ROOM_LABEL_HINTS[:8])}, …); (3) i vani non sono disegnati come poligoni chiusi "
-            "nel file vettoriale esportato."
+            "nel file vettoriale esportato. Puoi comunque aggiungere i vani a mano nel passaggio di verifica."
         )
 
     # --- Copertura dedicata, se caricata separatamente ---
@@ -162,16 +192,16 @@ def run_pipeline(
             roof_area = area_dedicata
     if roof_area == 0.0 and footprint > 0:
         roof_area = footprint
-        result.note_metodologiche = getattr(result, "note_metodologiche", [])
 
     # --- Stato di fatto (ristrutturazione) ---
     rooms_sdf = None
+    confronto: list[RoomComparison] = []
     if pdf_stato_di_fatto_path and v_sdf and v_sdf.is_valid:
         doc_sdf = fitz.open(pdf_stato_di_fatto_path)
         scale_pagina_sdf = find_scale_on_page(doc_sdf, 0) or v_sdf.scale_denominator
         rooms_sdf, _ = rooms_with_polygons(doc_sdf, scale_pagina_sdf, plan_page=0)
         doc_sdf.close()
-        result.confronto = compare_stati(rooms_sdf, rooms)
+        confronto = compare_stati(rooms_sdf, rooms)
 
     # --- Elementi strutturali ---
     structural_elements = []
@@ -183,6 +213,42 @@ def run_pipeline(
         )
         doc_s.close()
 
+    result.rooms = rooms
+    result.openings = openings
+    result.structural_elements = structural_elements
+    result.footprint_area_m2 = round(footprint, 2)
+    result.roof_area_m2 = round(roof_area, 2)
+    result.rooms_sdf = rooms_sdf
+    result.confronto = confronto
+    return result
+
+
+def build_from_quantities(
+    tipo_intervento: str,
+    meta: ProjectMeta,
+    answers: dict[str, str],
+    parametri_overrides: dict[str, float],
+    rooms: list[RoomQuantity],
+    openings: list[OpeningQuantity],
+    structural_elements: list[TaggedElement],
+    footprint_area_m2: float,
+    roof_area_m2: float,
+    rooms_sdf: list[RoomQuantity] | None,
+    confronto: list[RoomComparison],
+    note_metodologiche: list[str],
+    validation_messages: list[str],
+    db_path: str,
+    prezzario_id: int | None,
+    excel_out: str,
+    primus_out: str,
+    word_out: str,
+    capitolato_text: str | None = None,
+) -> PipelineResult:
+    """Da vani/aperture/elementi (rilevati automaticamente e/o corretti
+    dall'utente nel passaggio di verifica) ai file finali del computo."""
+    result = PipelineResult()
+    meta.tipo_intervento = tipo_intervento
+    parametri = merge_parametri(parametri_overrides)
     questions = missing_questions(capitolato_text)
 
     conn = prezzario_db.get_connection(db_path)
@@ -197,26 +263,24 @@ def run_pipeline(
 
     righe, note = build_computo(
         rooms, openings, answers, parametri, voci_prezzario,
-        footprint_area_m2=footprint, structural_elements=structural_elements,
-        roof_area_m2_plan=roof_area, rooms_sdf=rooms_sdf,
+        footprint_area_m2=footprint_area_m2, structural_elements=structural_elements,
+        roof_area_m2_plan=roof_area_m2, rooms_sdf=rooms_sdf,
     )
     # le note raccolte durante l'estrazione (es. avviso "nessun vano riconosciuto",
     # scale diverse su pagine diverse) vanno CONSERVATE, non sostituite da quelle
     # di build_computo: le mettiamo per prime, così restano in evidenza.
-    tutte_le_note = result.note_metodologiche + note
+    tutte_le_note = list(note_metodologiche) + note
 
     build_excel(righe, meta, excel_out)
     build_primus_export(righe, meta, primus_out)
-    all_validation_messages = []
-    for v in result.validations.values():
-        all_validation_messages.extend(v.messages)
-    build_word(righe, meta, tutte_le_note, all_validation_messages, word_out, confronto=result.confronto)
+    build_word(righe, meta, tutte_le_note, validation_messages, word_out, confronto=confronto)
 
     result.rooms = rooms
     result.openings = openings
     result.structural_elements = structural_elements
-    result.footprint_area_m2 = round(footprint, 2)
-    result.roof_area_m2 = round(roof_area, 2)
+    result.footprint_area_m2 = round(footprint_area_m2, 2)
+    result.roof_area_m2 = round(roof_area_m2, 2)
+    result.confronto = confronto
     result.questions_asked = questions
     result.voci = righe
     result.note_metodologiche = tutte_le_note
@@ -225,3 +289,51 @@ def run_pipeline(
     result.word_path = word_out
     result.totale = round(sum(v.importo for v in righe), 2)
     return result
+
+
+def run_pipeline(
+    tipo_intervento: str,
+    pdf_progetto_path: str,
+    db_path: str,
+    meta: ProjectMeta,
+    answers: dict[str, str],
+    parametri_overrides: dict[str, float],
+    pdf_stato_di_fatto_path: str | None = None,
+    pdf_strutturale_path: str | None = None,
+    pdf_copertura_path: str | None = None,
+    capitolato_text: str | None = None,
+    prezzario_id: int | None = None,
+    legend_page: int | None = 1,
+    structural_legend_page: int | None = 1,
+    excel_out: str = "computo.xlsx",
+    primus_out: str = "elenco_prezzi_primus.xlsx",
+    word_out: str = "computo.docx",
+) -> PipelineResult:
+    """Esegue estrazione e generazione in un solo passaggio (senza il
+    passaggio di verifica intermedio): usata dai test e da chi non ha
+    bisogno di rivedere i vani rilevati prima di generare il computo."""
+    extraction = extract_quantities(
+        tipo_intervento=tipo_intervento,
+        pdf_progetto_path=pdf_progetto_path,
+        pdf_stato_di_fatto_path=pdf_stato_di_fatto_path,
+        pdf_strutturale_path=pdf_strutturale_path,
+        pdf_copertura_path=pdf_copertura_path,
+        legend_page=legend_page,
+        structural_legend_page=structural_legend_page,
+    )
+    if not extraction.ok:
+        return PipelineResult(ok=False, errors=extraction.errors, validations=extraction.validations)
+
+    return build_from_quantities(
+        tipo_intervento=tipo_intervento,
+        meta=meta, answers=answers, parametri_overrides=parametri_overrides,
+        rooms=extraction.rooms, openings=extraction.openings,
+        structural_elements=extraction.structural_elements,
+        footprint_area_m2=extraction.footprint_area_m2, roof_area_m2=extraction.roof_area_m2,
+        rooms_sdf=extraction.rooms_sdf, confronto=extraction.confronto,
+        note_metodologiche=extraction.note_metodologiche,
+        validation_messages=extraction.validation_messages,
+        db_path=db_path, prezzario_id=prezzario_id,
+        excel_out=excel_out, primus_out=primus_out, word_out=word_out,
+        capitolato_text=capitolato_text,
+    )

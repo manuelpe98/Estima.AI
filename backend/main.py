@@ -28,8 +28,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .models import ProjectMeta
-from .pipeline import validate_only, questions_for_project, run_pipeline
+from .models import ProjectMeta, RoomQuantity, OpeningQuantity, TaggedElement, RoomComparison
+from .pipeline import validate_only, questions_for_project, extract_quantities, build_from_quantities
 from .prezzario import db as prezzario_db
 from .intake import required_documents, TIPI_INTERVENTO
 from .parametri_engine import PARAMETRI
@@ -168,30 +168,26 @@ async def api_upload_prezzario(
     return {"prezzario_id": pid, "voci_importate": len(rows)}
 
 
-@app.post("/api/generate")
-async def api_generate(
+@app.post("/api/estrai-vani")
+async def api_estrai_vani(
     tipo_intervento: str = Form(...),
     file_progetto: list[UploadFile] = File(...),
     file_stato_di_fatto: list[UploadFile] = File(default=[]),
     file_strutturale: list[UploadFile] = File(default=[]),
     file_copertura: list[UploadFile] = File(default=[]),
-    nome_progetto: str = Form("Progetto senza nome"),
-    committente: str = Form(""),
-    ubicazione: str = Form(""),
-    capitolato_text: str | None = Form(None),
-    answers_json: str = Form("{}"),
-    parametri_json: str = Form("{}"),
-    prezzario_id: int | None = Form(None),
     legend_page: int = Form(1),
     structural_legend_page: int = Form(1),
 ):
+    """Prima fase: dai PDF ai vani/aperture/elementi strutturali rilevati,
+    SENZA calcolare prezzi né generare file. L'utente li rivede (e corregge,
+    se serve) nel passo successivo, prima di generare il computo vero e
+    proprio con /api/generate — necessario perché su disegni CAD reali molto
+    dettagliati il rilievo automatico non è sempre perfetto (es. due ambienti
+    attigui possono risultare uniti in un'unica area)."""
     if tipo_intervento not in TIPI_INTERVENTO:
         raise HTTPException(400, f"tipo_intervento deve essere uno tra {TIPI_INTERVENTO}")
 
     job_id = uuid.uuid4().hex
-
-    # Ogni categoria può comprendere più elaborati (es. pianta + prospetti + sezioni):
-    # vengono salvati singolarmente e poi uniti in un unico PDF nell'ordine di selezione.
     progetto_paths = [_save_upload(f) for f in file_progetto if f.filename]
     sdf_paths = [_save_upload(f) for f in file_stato_di_fatto if f.filename]
     strut_paths = [_save_upload(f) for f in file_strutturale if f.filename]
@@ -210,32 +206,91 @@ async def api_generate(
         return JSONResponse(status_code=422, content={
             "error": "Per una ristrutturazione è obbligatorio caricare anche la pianta dello stato di fatto."})
 
+    extraction = extract_quantities(
+        tipo_intervento=tipo_intervento, pdf_progetto_path=pdf_progetto_path,
+        pdf_stato_di_fatto_path=pdf_sdf_path, pdf_strutturale_path=pdf_strut_path,
+        pdf_copertura_path=pdf_cop_path, legend_page=legend_page,
+        structural_legend_page=structural_legend_page,
+    )
+    if not extraction.ok:
+        return JSONResponse(status_code=422, content={
+            "error": "Uno o più elaborati non sono conformi ai requisiti (scala/quote/vettorialità).",
+            "messages": extraction.errors + extraction.validation_messages,
+        })
+
+    return {
+        "rooms": [asdict(r) for r in extraction.rooms],
+        "openings": [asdict(o) for o in extraction.openings],
+        "structural_elements": [asdict(e) for e in extraction.structural_elements],
+        "footprint_area_m2": extraction.footprint_area_m2,
+        "roof_area_m2": extraction.roof_area_m2,
+        "rooms_sdf": [asdict(r) for r in extraction.rooms_sdf] if extraction.rooms_sdf else [],
+        "confronto": [asdict(c) for c in extraction.confronto],
+        "note_metodologiche": extraction.note_metodologiche,
+        "validation_messages": extraction.validation_messages,
+    }
+
+
+@app.post("/api/generate")
+async def api_generate(
+    tipo_intervento: str = Form(...),
+    rooms_json: str = Form("[]"),
+    openings_json: str = Form("[]"),
+    structural_elements_json: str = Form("[]"),
+    footprint_area_m2: float = Form(0.0),
+    roof_area_m2: float = Form(0.0),
+    rooms_sdf_json: str = Form("[]"),
+    confronto_json: str = Form("[]"),
+    note_metodologiche_json: str = Form("[]"),
+    validation_messages_json: str = Form("[]"),
+    nome_progetto: str = Form("Progetto senza nome"),
+    committente: str = Form(""),
+    ubicazione: str = Form(""),
+    capitolato_text: str | None = Form(None),
+    answers_json: str = Form("{}"),
+    parametri_json: str = Form("{}"),
+    prezzario_id: int | None = Form(None),
+):
+    """Seconda fase: dai vani/aperture/elementi (rilevati da /api/estrai-vani
+    ed eventualmente corretti dall'utente nella pagina di verifica) al
+    computo finale (Excel, PriMus, Word). Non serve ricaricare i PDF."""
+    if tipo_intervento not in TIPI_INTERVENTO:
+        raise HTTPException(400, f"tipo_intervento deve essere uno tra {TIPI_INTERVENTO}")
+
+    try:
+        rooms = [RoomQuantity(**r) for r in json.loads(rooms_json)]
+        openings = [OpeningQuantity(**o) for o in json.loads(openings_json)]
+        structural_elements = [TaggedElement(**e) for e in json.loads(structural_elements_json)]
+        rooms_sdf_list = [RoomQuantity(**r) for r in json.loads(rooms_sdf_json)]
+        confronto = [RoomComparison(**c) for c in json.loads(confronto_json)]
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, f"Dati di vani/aperture non validi: {exc}")
+
+    if not rooms and not structural_elements and footprint_area_m2 <= 0 and roof_area_m2 <= 0:
+        return JSONResponse(status_code=422, content={
+            "error": "Nessun vano, elemento strutturale, sedime o copertura da computare: "
+                     "torna al passaggio di verifica ed elenca almeno un vano o un elemento."})
+
     answers = json.loads(answers_json)
     parametri_overrides = json.loads(parametri_json)
+    note_metodologiche = json.loads(note_metodologiche_json)
+    validation_messages = json.loads(validation_messages_json)
     meta = ProjectMeta(nome_progetto=nome_progetto, committente=committente, ubicazione=ubicazione)
 
+    job_id = uuid.uuid4().hex
     excel_out = str(OUTPUT_DIR / f"{job_id}_computo.xlsx")
     primus_out = str(OUTPUT_DIR / f"{job_id}_elenco_prezzi_primus.xlsx")
     word_out = str(OUTPUT_DIR / f"{job_id}_computo.docx")
 
-    result = run_pipeline(
-        tipo_intervento=tipo_intervento,
-        pdf_progetto_path=pdf_progetto_path,
-        db_path=DB_PATH, meta=meta, answers=answers, parametri_overrides=parametri_overrides,
-        pdf_stato_di_fatto_path=pdf_sdf_path, pdf_strutturale_path=pdf_strut_path,
-        pdf_copertura_path=pdf_cop_path, capitolato_text=capitolato_text, prezzario_id=prezzario_id,
-        legend_page=legend_page, structural_legend_page=structural_legend_page,
+    result = build_from_quantities(
+        tipo_intervento=tipo_intervento, meta=meta, answers=answers, parametri_overrides=parametri_overrides,
+        rooms=rooms, openings=openings, structural_elements=structural_elements,
+        footprint_area_m2=footprint_area_m2, roof_area_m2=roof_area_m2,
+        rooms_sdf=(rooms_sdf_list or None), confronto=confronto,
+        note_metodologiche=note_metodologiche, validation_messages=validation_messages,
+        db_path=DB_PATH, prezzario_id=prezzario_id, capitolato_text=capitolato_text,
         excel_out=excel_out, primus_out=primus_out, word_out=word_out,
     )
-
-    if not result.ok:
-        messages = list(result.errors)
-        for v in result.validations.values():
-            messages.extend(v.messages)
-        return JSONResponse(status_code=422, content={
-            "error": "Uno o più elaborati non sono conformi ai requisiti (scala/quote/vettorialità).",
-            "messages": messages,
-        })
 
     zip_path = str(OUTPUT_DIR / f"{job_id}_computo.zip")
     with zipfile.ZipFile(zip_path, "w") as zf:
