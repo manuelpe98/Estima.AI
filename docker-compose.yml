@@ -1,0 +1,18 @@
+services:
+  computo-app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistenza: senza questo volume, il database dei prezzari caricati e i
+      # job generati vengono persi ad ogni riavvio del container.
+      - computo-data:/data
+    environment:
+      - COMPUTO_MAX_UPLOAD_MB=50
+      # Decommenta e imposta una password per proteggere il sito con nome utente/password:
+      # - BASIC_AUTH_USER=francope
+      # - BASIC_AUTH_PASS=cambia-questa-password
+    restart: unless-stopped
+
+volumes:
+  computo-data:

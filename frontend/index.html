@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<title>Computo Metrico Automatico — MVP</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #1b2733; }
+  h1 { font-size: 1.4rem; }
+  section { border: 1px solid #dbe2e8; border-radius: 10px; padding: 1.2rem; margin-bottom: 1.2rem; }
+  section h2 { margin-top: 0; font-size: 1.05rem; }
+  label { display: block; margin: .6rem 0 .2rem; font-weight: 600; font-size: .9rem; }
+  input[type=text], input[type=number], textarea, select { width: 100%; padding: .5rem; border: 1px solid #c7d0d8; border-radius: 6px; box-sizing: border-box; font-family: inherit; }
+  button { margin-top: .8rem; padding: .55rem 1.1rem; border: none; border-radius: 6px; background: #1f4e5f; color: #fff; cursor: pointer; font-weight: 600; }
+  button.secondary { background: #5a6b74; }
+  button:disabled { background: #a9b7bd; cursor: not-allowed; }
+  .msg { font-size: .88rem; padding: .5rem .7rem; border-radius: 6px; margin-top: .6rem; white-space: pre-wrap; }
+  .msg.ok { background: #e4f5ea; color: #1c6b3d; }
+  .msg.err { background: #fdeaea; color: #a12626; }
+  .question, .doc-row, .param-row { border-top: 1px solid #eef1f3; padding-top: .6rem; margin-top: .6rem; }
+  .doc-row .req { color: #a12626; font-size: .78rem; }
+  .doc-row .opt { color: #64717a; font-size: .78rem; }
+  .radio-group { display: flex; gap: 1.2rem; margin-top: .4rem; }
+  small.hint { color: #64717a; }
+  .param-row { display: grid; grid-template-columns: 1fr 140px; gap: .6rem; align-items: center; }
+</style>
+</head>
+<body>
+<h1>Computo Metrico Estimativo — generazione automatica (MVP)</h1>
+<p><small class="hint">Copre finiture, strutture in elevazione, scavi e copertura. Per una ristrutturazione confronta
+stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, non ufficiale.</small></p>
+
+<section id="step0">
+  <h2>1. Tipo di intervento</h2>
+  <div class="radio-group">
+    <label style="font-weight:normal"><input type="radio" name="tipoIntervento" value="nuova_costruzione" checked> Nuova costruzione</label>
+    <label style="font-weight:normal"><input type="radio" name="tipoIntervento" value="ristrutturazione"> Ristrutturazione</label>
+  </div>
+  <div id="docChecklist"></div>
+</section>
+
+<section id="step1">
+  <h2>2. Elaborati grafici (PDF vettoriali, in scala, quotati)</h2>
+  <label>Pianta — stato di progetto (obbligatoria)</label>
+  <input type="file" id="fileProgetto" accept="application/pdf" />
+
+  <div id="rowStatoDiFatto" style="display:none">
+    <label>Pianta — stato di fatto (obbligatoria per ristrutturazione)</label>
+    <input type="file" id="fileStatoDiFatto" accept="application/pdf" />
+  </div>
+
+  <label>Pianta strutturale con abaco pilastri/travi</label>
+  <input type="file" id="fileStrutturale" accept="application/pdf" />
+  <label>Pagina abaco pilastri/travi nel PDF strutturale (0 = prima pagina)</label>
+  <input type="number" id="structuralLegendPage" value="1" />
+
+  <label>Pianta di copertura (facoltativa: se assente si usa un'approssimazione dal sedime)</label>
+  <input type="file" id="fileCopertura" accept="application/pdf" />
+
+  <label>Pagina abaco serramenti nella pianta di progetto (0 = prima pagina)</label>
+  <input type="number" id="legendPage" value="1" />
+
+  <button id="btnValidate">Verifica elaborati</button>
+  <div id="validateMsg"></div>
+  <small class="hint">Ogni PDF deve essere vettoriale, riportare la scala (es. "SCALA 1:100") ed essere quotato:
+  in caso contrario il caricamento viene rifiutato.</small>
+</section>
+
+<section id="step2" style="display:none">
+  <h2>3. Capitolato (facoltativo) e prezzario</h2>
+  <label>Testo del capitolato, se disponibile (incolla qui il contenuto)</label>
+  <textarea id="capitolatoText" rows="4" placeholder="Se non lo incolli, ti farò le domande necessarie sulle finiture e sulla struttura."></textarea>
+
+  <label>Prezzario di riferimento</label>
+  <select id="prezzarioSelect"></select>
+  <small class="hint">Se non carichi un prezzario, viene usato quello di esempio (placeholder, non ufficiale).</small>
+
+  <details style="margin-top:.6rem">
+    <summary>Carica un prezzario reale (CSV)</summary>
+    <label>File CSV (colonne: categoria, sotto_tipo, codice, descrizione, unita_misura, prezzo)</label>
+    <input type="file" id="prezzarioFile" accept=".csv" />
+    <label>Regione</label><input type="text" id="prezzarioRegione" value="Lombardia" />
+    <label>Anno</label><input type="number" id="prezzarioAnno" value="2026" />
+    <label>Nome</label><input type="text" id="prezzarioNome" value="Prezzario Regione Lombardia" />
+    <button id="btnUploadPrezzario">Carica prezzario</button>
+    <div id="prezzarioMsg"></div>
+  </details>
+
+  <button id="btnQuestions">Genera domande capitolato</button>
+</section>
+
+<section id="step3" style="display:none">
+  <h2>4. Domande su materiali, finiture e struttura</h2>
+  <div id="questionsContainer"></div>
+</section>
+
+<section id="step3b" style="display:none">
+  <h2>5. Parametri dimensionali (confermali o modificali)</h2>
+  <small class="hint">Non deducibili in modo affidabile dai soli elaborati grafici in questa versione: proposti con un valore tipico.</small>
+  <div id="paramsContainer"></div>
+</section>
+
+<section id="step4" style="display:none">
+  <h2>6. Dati progetto e generazione</h2>
+  <label>Nome progetto</label><input type="text" id="nomeProgetto" />
+  <label>Committente</label><input type="text" id="committente" />
+  <label>Ubicazione</label><input type="text" id="ubicazione" />
+  <button id="btnGenerate">Genera computo metrico</button>
+  <div id="generateMsg"></div>
+</section>
+
+<script>
+const API = ""; // stesso host/porta del backend: il sito e le API sono un unico servizio
+let currentQuestions = [];
+let currentParams = [];
+
+function tipoIntervento() {
+  return document.querySelector('input[name="tipoIntervento"]:checked').value;
+}
+
+async function loadChecklist() {
+  const tipo = tipoIntervento();
+  document.getElementById("rowStatoDiFatto").style.display = tipo === "ristrutturazione" ? "block" : "none";
+  const res = await fetch(`${API}/api/intake/requirements?tipo_intervento=${tipo}`);
+  const docs = await res.json();
+  const el = document.getElementById("docChecklist");
+  el.innerHTML = "<p><strong>Documenti richiesti per questo intervento:</strong></p>" + docs.map(d =>
+    `<div class="doc-row">${d.label} <span class="${d.obbligatorio ? 'req' : 'opt'}">${d.obbligatorio ? '(obbligatorio)' : '(facoltativo)'}</span>` +
+    (d.note ? `<br><small class="hint">${d.note}</small>` : "") + `</div>`
+  ).join("");
+}
+document.querySelectorAll('input[name="tipoIntervento"]').forEach(r => r.onchange = loadChecklist);
+loadChecklist();
+
+document.getElementById("btnValidate").onclick = async () => {
+  const progetto = document.getElementById("fileProgetto").files[0];
+  if (!progetto) { alert("Seleziona almeno la pianta di progetto."); return; }
+  const tipo = tipoIntervento();
+  const sdf = document.getElementById("fileStatoDiFatto").files[0];
+  if (tipo === "ristrutturazione" && !sdf) { alert("Per una ristrutturazione carica anche lo stato di fatto."); return; }
+
+  const toValidate = [["progetto", progetto]];
+  if (sdf) toValidate.push(["stato di fatto", sdf]);
+  const strutturale = document.getElementById("fileStrutturale").files[0];
+  if (strutturale) toValidate.push(["strutturale", strutturale]);
+  const copertura = document.getElementById("fileCopertura").files[0];
+  if (copertura) toValidate.push(["copertura", copertura]);
+
+  const msgEl = document.getElementById("validateMsg");
+  msgEl.textContent = "Verifica in corso...";
+  msgEl.className = "msg";
+  let allOk = true;
+  let report = [];
+  for (const [label, file] of toValidate) {
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const res = await fetch(`${API}/api/validate`, { method: "POST", body: fd });
+      const data = await res.json();
+      report.push(`[${label}] ` + data.messages.join(" "));
+      if (!data.is_valid) allOk = false;
+    } catch (e) {
+      report.push(`[${label}] Errore di connessione: ${e}`);
+      allOk = false;
+    }
+  }
+  msgEl.textContent = report.join("\n");
+  msgEl.className = "msg " + (allOk ? "ok" : "err");
+  document.getElementById("step2").style.display = allOk ? "block" : "none";
+  if (allOk) loadPrezzari();
+};
+
+async function loadPrezzari() {
+  const res = await fetch(`${API}/api/prezzari`);
+  const list = await res.json();
+  const sel = document.getElementById("prezzarioSelect");
+  sel.innerHTML = "";
+  list.forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = `${p.nome} (${p.regione}, ${p.anno})${p.is_placeholder ? " — ESEMPIO" : ""}`;
+    sel.appendChild(opt);
+  });
+}
+
+document.getElementById("btnUploadPrezzario").onclick = async () => {
+  const fileInput = document.getElementById("prezzarioFile");
+  if (!fileInput.files.length) { alert("Seleziona un CSV."); return; }
+  const fd = new FormData();
+  fd.append("file", fileInput.files[0]);
+  fd.append("regione", document.getElementById("prezzarioRegione").value);
+  fd.append("anno", document.getElementById("prezzarioAnno").value);
+  fd.append("nome", document.getElementById("prezzarioNome").value);
+  const msgEl = document.getElementById("prezzarioMsg");
+  try {
+    const res = await fetch(`${API}/api/prezzari/upload`, { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    msgEl.textContent = `Importate ${data.voci_importate} voci.`;
+    msgEl.className = "msg ok";
+    loadPrezzari();
+  } catch (e) {
+    msgEl.textContent = "Errore: " + e;
+    msgEl.className = "msg err";
+  }
+};
+
+document.getElementById("btnQuestions").onclick = async () => {
+  const fd = new FormData();
+  fd.append("capitolato_text", document.getElementById("capitolatoText").value);
+  const res = await fetch(`${API}/api/questions`, { method: "POST", body: fd });
+  const data = await res.json();
+  currentQuestions = data.questions;
+  const container = document.getElementById("questionsContainer");
+  container.innerHTML = "";
+  if (currentQuestions.length === 0) {
+    container.innerHTML = "<p>Il capitolato copre già tutte le categorie: nessuna domanda necessaria.</p>";
+  }
+  currentQuestions.forEach(q => {
+    const div = document.createElement("div");
+    div.className = "question";
+    div.innerHTML = `<strong>${q.categoria}</strong><br>${q.testo}<br>` +
+      q.opzioni.map(o => `<label style="font-weight:normal"><input type="radio" name="${q.id}" value="${o}"> ${o}</label>`).join("");
+    container.appendChild(div);
+  });
+
+  const resP = await fetch(`${API}/api/parametri`);
+  currentParams = await resP.json();
+  const pContainer = document.getElementById("paramsContainer");
+  pContainer.innerHTML = "";
+  currentParams.forEach(p => {
+    const div = document.createElement("div");
+    div.className = "param-row";
+    div.innerHTML = `<label style="margin:0">${p.label} (${p.unita})${p.note ? `<br><small class="hint">${p.note}</small>` : ""}</label>` +
+      `<input type="number" step="0.01" id="param_${p.id}" value="${p.default}">`;
+    pContainer.appendChild(div);
+  });
+
+  document.getElementById("step3").style.display = "block";
+  document.getElementById("step3b").style.display = "block";
+  document.getElementById("step4").style.display = "block";
+};
+
+document.getElementById("btnGenerate").onclick = async () => {
+  const answers = {};
+  currentQuestions.forEach(q => {
+    const checked = document.querySelector(`input[name="${q.id}"]:checked`);
+    if (checked) answers[q.id] = checked.value;
+  });
+  const parametri = {};
+  currentParams.forEach(p => {
+    const el = document.getElementById(`param_${p.id}`);
+    if (el && el.value !== "") parametri[p.id] = parseFloat(el.value);
+  });
+
+  const fd = new FormData();
+  fd.append("tipo_intervento", tipoIntervento());
+  fd.append("file_progetto", document.getElementById("fileProgetto").files[0]);
+  const sdf = document.getElementById("fileStatoDiFatto").files[0];
+  if (sdf) fd.append("file_stato_di_fatto", sdf);
+  const strutturale = document.getElementById("fileStrutturale").files[0];
+  if (strutturale) fd.append("file_strutturale", strutturale);
+  const copertura = document.getElementById("fileCopertura").files[0];
+  if (copertura) fd.append("file_copertura", copertura);
+
+  fd.append("nome_progetto", document.getElementById("nomeProgetto").value);
+  fd.append("committente", document.getElementById("committente").value);
+  fd.append("ubicazione", document.getElementById("ubicazione").value);
+  fd.append("capitolato_text", document.getElementById("capitolatoText").value);
+  fd.append("answers_json", JSON.stringify(answers));
+  fd.append("parametri_json", JSON.stringify(parametri));
+  fd.append("prezzario_id", document.getElementById("prezzarioSelect").value || "");
+  fd.append("legend_page", document.getElementById("legendPage").value || "1");
+  fd.append("structural_legend_page", document.getElementById("structuralLegendPage").value || "1");
+
+  const msgEl = document.getElementById("generateMsg");
+  msgEl.textContent = "Generazione in corso...";
+  msgEl.className = "msg";
+  try {
+    const res = await fetch(`${API}/api/generate`, { method: "POST", body: fd });
+    if (!res.ok) {
+      const err = await res.json();
+      msgEl.textContent = (err.messages || [err.error || "Errore"]).join("\n");
+      msgEl.className = "msg err";
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "computo_metrico_estimativo.zip";
+    a.click();
+    msgEl.textContent = "Computo generato e scaricato (contiene Excel completo, elenco prezzi per PriMus e relazione Word).";
+    msgEl.className = "msg ok";
+  } catch (e) {
+    msgEl.textContent = "Errore: " + e;
+    msgEl.className = "msg err";
+  }
+};
+</script>
+</body>
+</html>

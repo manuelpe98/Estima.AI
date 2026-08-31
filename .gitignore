@@ -1,0 +1,9 @@
+data/uploads/*
+data/output/*
+data/prezzari/*.db
+!data/uploads/.gitkeep
+!data/output/.gitkeep
+!data/prezzari/.gitkeep
+__pycache__/
+*.pyc
+.env
