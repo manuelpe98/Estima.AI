@@ -49,6 +49,28 @@ def find_scale(spans: list[dict]) -> int | None:
     return None
 
 
+def find_scale_on_page(doc: "fitz.Document", page_number: int) -> int | None:
+    """Come find_scale, ma limitato a UNA pagina specifica del documento.
+
+    Serve quando più elaborati con scale diverse sono stati uniti in un solo
+    PDF (es. planimetria generale 1:2000 + pianta di progetto 1:100): la
+    scala usata per convertire le quote geometriche della pagina della pianta
+    deve essere quella dichiarata su QUELLA pagina, non la prima scala
+    incontrata scorrendo l'intero documento unito.
+    """
+    if page_number < 0 or page_number >= doc.page_count:
+        return None
+    page_spans = []
+    d = doc[page_number].get_text("dict")
+    for block in d.get("blocks", []):
+        for line in block.get("lines", []):
+            for span in line.get("spans", []):
+                text = span["text"].strip()
+                if text:
+                    page_spans.append({"text": text})
+    return find_scale(page_spans)
+
+
 def count_quote_numbers(spans: list[dict]) -> int:
     count = 0
     for sp in spans:

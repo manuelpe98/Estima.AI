@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 import fitz
 
 from .models import ValidationResult, ProjectMeta, RoomComparison
-from .pdf_validation import validate_pdf
+from .pdf_validation import validate_pdf, find_scale_on_page
 from .geometry_engine import (
     rooms_with_polygons, extract_openings, extract_tagged_elements,
-    extract_building_footprint_m2,
+    extract_building_footprint_m2, ROOM_LABEL_HINTS,
 )
 from .capitolato_engine import missing_questions
 from .parametri_engine import merge_parametri
@@ -117,17 +117,42 @@ def run_pipeline(
 
     # --- Estrazione geometria: stato di progetto ---
     doc = fitz.open(pdf_progetto_path)
+    # Se sono stati caricati più elaborati uniti in un solo PDF (es. planimetria
+    # generale + pianta di progetto, a scale diverse), usa la scala dichiarata
+    # sulla pagina della pianta (pagina 0) invece della prima trovata nell'intero
+    # documento unito: altrimenti il rilievo geometrico userebbe una scala
+    # sbagliata e non troverebbe nessun vano plausibile.
+    scale_pagina_piano = find_scale_on_page(doc, 0) or v_progetto.scale_denominator
+    if find_scale_on_page(doc, 0) is not None and scale_pagina_piano != v_progetto.scale_denominator:
+        result.note_metodologiche.append(
+            f"Il documento di progetto contiene scale diverse su pagine diverse (probabilmente più elaborati "
+            f"uniti insieme): per il rilievo di vani e sedime è stata usata la scala dichiarata sulla prima "
+            f"pagina (1:{scale_pagina_piano})."
+        )
     lp = legend_page if (legend_page is not None and legend_page < doc.page_count) else None
-    rooms, room_polys = rooms_with_polygons(doc, v_progetto.scale_denominator, plan_page=0)
+    rooms, room_polys = rooms_with_polygons(doc, scale_pagina_piano, plan_page=0)
     openings = extract_openings(doc, plan_page=0, legend_page=lp)
-    footprint = extract_building_footprint_m2(room_polys, v_progetto.scale_denominator)
+    footprint = extract_building_footprint_m2(room_polys, scale_pagina_piano)
     roof_area = _extract_roof_area(list(zip(rooms, room_polys)))
     doc.close()
+
+    if not rooms:
+        result.note_metodologiche.append(
+            "ATTENZIONE: nessun vano è stato riconosciuto sulla prima pagina del documento di progetto, quindi "
+            "il computo delle finiture, degli scavi e degli impianti risulta vuoto. Le cause più frequenti sono: "
+            "(1) se hai caricato più file per la pianta di progetto, la prima pagina del PRIMO file selezionato "
+            "non è la pianta quotata con le etichette dei vani (es. è una planimetria generale o un prospetto: "
+            "in questo caso ricarica selezionando per primo il file la cui prima pagina è la pianta); "
+            "(2) le etichette dei vani nel disegno non usano una delle diciture riconosciute "
+            f"({', '.join(ROOM_LABEL_HINTS[:8])}, …); (3) i vani non sono disegnati come poligoni chiusi "
+            "nel file vettoriale esportato."
+        )
 
     # --- Copertura dedicata, se caricata separatamente ---
     if pdf_copertura_path and v_copertura and v_copertura.is_valid:
         doc_cop = fitz.open(pdf_copertura_path)
-        rooms_cop, polys_cop = rooms_with_polygons(doc_cop, v_copertura.scale_denominator, plan_page=0)
+        scale_pagina_cop = find_scale_on_page(doc_cop, 0) or v_copertura.scale_denominator
+        rooms_cop, polys_cop = rooms_with_polygons(doc_cop, scale_pagina_cop, plan_page=0)
         doc_cop.close()
         area_dedicata = _extract_roof_area(list(zip(rooms_cop, polys_cop)))
         if area_dedicata == 0 and polys_cop:
@@ -143,7 +168,8 @@ def run_pipeline(
     rooms_sdf = None
     if pdf_stato_di_fatto_path and v_sdf and v_sdf.is_valid:
         doc_sdf = fitz.open(pdf_stato_di_fatto_path)
-        rooms_sdf, _ = rooms_with_polygons(doc_sdf, v_sdf.scale_denominator, plan_page=0)
+        scale_pagina_sdf = find_scale_on_page(doc_sdf, 0) or v_sdf.scale_denominator
+        rooms_sdf, _ = rooms_with_polygons(doc_sdf, scale_pagina_sdf, plan_page=0)
         doc_sdf.close()
         result.confronto = compare_stati(rooms_sdf, rooms)
 
@@ -174,13 +200,17 @@ def run_pipeline(
         footprint_area_m2=footprint, structural_elements=structural_elements,
         roof_area_m2_plan=roof_area, rooms_sdf=rooms_sdf,
     )
+    # le note raccolte durante l'estrazione (es. avviso "nessun vano riconosciuto",
+    # scale diverse su pagine diverse) vanno CONSERVATE, non sostituite da quelle
+    # di build_computo: le mettiamo per prime, così restano in evidenza.
+    tutte_le_note = result.note_metodologiche + note
 
     build_excel(righe, meta, excel_out)
     build_primus_export(righe, meta, primus_out)
     all_validation_messages = []
     for v in result.validations.values():
         all_validation_messages.extend(v.messages)
-    build_word(righe, meta, note, all_validation_messages, word_out, confronto=result.confronto)
+    build_word(righe, meta, tutte_le_note, all_validation_messages, word_out, confronto=result.confronto)
 
     result.rooms = rooms
     result.openings = openings
@@ -189,7 +219,7 @@ def run_pipeline(
     result.roof_area_m2 = round(roof_area, 2)
     result.questions_asked = questions
     result.voci = righe
-    result.note_metodologiche = note
+    result.note_metodologiche = tutte_le_note
     result.excel_path = excel_out
     result.primus_path = primus_out
     result.word_path = word_out
