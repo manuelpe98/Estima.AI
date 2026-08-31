@@ -30,6 +30,21 @@ def _find_voce(voci: list[dict], categoria: str, sotto_tipo: str) -> dict | None
     return None
 
 
+def _find_voce_con_dettaglio(voci: list[dict], categoria: str, sotto_tipo: str,
+                              answers: dict[str, str], domanda_id: str) -> dict | None:
+    """Come _find_voce, ma quando l'utente ha scelto "Altro (specificare a parte)"
+    e ha scritto un dettaglio nella relativa casella di testo, lo riporta nella
+    descrizione della voce generata (la voce di prezzo resta quella generica
+    segnaposto, da correggere manualmente con il prezzo reale)."""
+    v = _find_voce(voci, categoria, sotto_tipo)
+    if v and sotto_tipo.startswith("Altro"):
+        dettaglio = (answers.get(f"{domanda_id}_dettaglio") or "").strip()
+        if dettaglio:
+            v = dict(v)
+            v["descrizione"] = f"{v['descrizione']} — indicato dall'utente: {dettaglio}"
+    return v
+
+
 def build_computo(
     rooms: list[RoomQuantity],
     openings: list[OpeningQuantity],
@@ -74,12 +89,12 @@ def build_computo(
 
     # --- Finiture (pavimenti, pareti, serramenti, porte) ---
     tot_area_pav = sum(r.area_m2 for r in rooms)
-    add(_find_voce(voci, "pavimenti", pav_tipo), tot_area_pav,
+    add(_find_voce_con_dettaglio(voci, "pavimenti", pav_tipo, answers, "pavimenti"), tot_area_pav,
         f"Somma superfici di {len(rooms)} vani rilevati da pianta")
 
     tot_perimetro = sum(r.perimeter_m for r in rooms)
     superficie_pareti = tot_perimetro * altezza_interna
-    add(_find_voce(voci, "pareti_interne", par_tipo), superficie_pareti,
+    add(_find_voce_con_dettaglio(voci, "pareti_interne", par_tipo, answers, "pareti_interne"), superficie_pareti,
         f"Perimetro vani ({round(tot_perimetro,2)} m) x altezza interna {altezza_interna} m, "
         "al lordo di porte/finestre (non detratte in questa versione)")
     if superficie_pareti > 0:
@@ -93,7 +108,7 @@ def build_computo(
     senza_misure = [o for o in finestre if not (o.width_cm and o.height_cm)]
     if con_misure:
         area_tot = sum((o.width_cm * o.height_cm / 10000.0) * o.count for o in con_misure)
-        add(_find_voce(voci, "serramenti_esterni", ser_tipo), area_tot,
+        add(_find_voce_con_dettaglio(voci, "serramenti_esterni", ser_tipo, answers, "serramenti_esterni"), area_tot,
             f"{sum(o.count for o in con_misure)} finestre con dimensioni da abaco serramenti")
     if senza_misure:
         count_tot = sum(o.count for o in senza_misure)
@@ -105,19 +120,19 @@ def build_computo(
 
     porte = [o for o in openings if o.kind == "porta"]
     if porte:
-        add(_find_voce(voci, "porte_interne", por_tipo), sum(o.count for o in porte),
+        add(_find_voce_con_dettaglio(voci, "porte_interne", por_tipo, answers, "porte_interne"), sum(o.count for o in porte),
             f"{sum(o.count for o in porte)} porte rilevate da pianta")
 
     # --- Impianti (stima a corpo) ---
     if rooms:
-        add(_find_voce(voci, "impianto_elettrico", ele_tipo), len(rooms),
+        add(_find_voce_con_dettaglio(voci, "impianto_elettrico", ele_tipo, answers, "impianto_elettrico"), len(rooms),
             f"Stima a corpo per locale, {len(rooms)} locali rilevati")
         note.append("L'impianto elettrico è stimato a corpo per locale: valorizzazione preliminare, "
                     "non sostituisce un computo impiantistico dedicato con schema unifilare.")
 
     bagni_cucine = [r for r in rooms if any(h in r.label.upper() for h in BAGNO_CUCINA_HINTS)]
     if bagni_cucine:
-        add(_find_voce(voci, "impianto_idrico", idr_tipo), len(bagni_cucine),
+        add(_find_voce_con_dettaglio(voci, "impianto_idrico", idr_tipo, answers, "impianto_idrico"), len(bagni_cucine),
             f"Stima a corpo per locale bagno/cucina, {len(bagni_cucine)} locali rilevati")
         note.append("L'impianto idrico-sanitario è stimato a corpo per i soli locali riconosciuti come "
                     "bagno/cucina dall'etichetta di pianta.")
@@ -134,7 +149,13 @@ def build_computo(
         )
 
     # --- Strutture in elevazione ---
-    if strut_tipo.startswith("Cemento armato") and structural_elements:
+    if strut_tipo.startswith("Cemento armato") and not structural_elements:
+        note.append(
+            "È stata indicata una struttura in cemento armato ma non sono stati riconosciuti pilastri/travi "
+            "(sigle PL#/TR#) nella pianta strutturale caricata (o non è stata caricata): nessuna voce di "
+            "struttura in elevazione è stata generata, va verificato l'abaco pilastri/travi."
+        )
+    elif strut_tipo.startswith("Cemento armato") and structural_elements:
         volume_cls = 0.0
         for el in structural_elements:
             if not (el.dim1_cm and el.dim2_cm):
@@ -168,12 +189,20 @@ def build_computo(
             "Il volume di muratura portante è stimato dal perimetro complessivo dei vani, non dall'asse reale "
             "dei muri perimetrali: è una stima preliminare da verificare sul disegno strutturale."
         )
+    elif not strut_tipo.startswith("Cemento armato") and (structural_elements or tot_perimetro > 0):
+        dettaglio = (answers.get("tipo_struttura_dettaglio") or "").strip()
+        extra = f" ({dettaglio})" if dettaglio else ""
+        note.append(
+            f"Il tipo di struttura verticale indicato ('{strut_tipo}'{extra}) non rientra tra quelli "
+            "calcolabili automaticamente in questa versione (cemento armato o muratura portante): nessuna "
+            "voce di struttura in elevazione è stata generata per questo progetto, va computata manualmente."
+        )
 
     # --- Copertura ---
     if roof_area_m2_plan > 0:
         fattore_falda = 1.0 / math.cos(math.radians(min(angolo_falda, 60)))
         area_reale = roof_area_m2_plan * fattore_falda
-        add(_find_voce(voci, "copertura", cop_tipo), area_reale,
+        add(_find_voce_con_dettaglio(voci, "copertura", cop_tipo, answers, "copertura_tipo"), area_reale,
             f"Superficie in pianta {round(roof_area_m2_plan,1)} m² corretta per angolo di falda "
             f"{angolo_falda}° (fattore {fattore_falda:.2f})")
 

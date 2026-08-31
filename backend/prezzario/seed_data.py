@@ -62,6 +62,9 @@ PLACEHOLDER_VOCI = [
      "Fornitura e posa porta interna tamburata laccata, completa di telaio e ferramenta", "cad", 380.00),
     ("porte_interne", "Porta in legno massello", "PLC-POR-03",
      "Fornitura e posa porta interna in legno massello, completa di telaio e ferramenta", "cad", 650.00),
+    ("porte_interne", "Porta rasomuro (a filo muro, a scomparsa)", "PLC-POR-04",
+     "Fornitura e posa porta interna rasomuro a filo muro, completa di controtelaio a scomparsa e ferramenta dedicata",
+     "cad", 780.00),
     ("porte_interne", "Altro (specificare a parte)", "PLC-POR-99",
      "Fornitura e posa porta interna — tipologia da definire, voce generica", "cad", 320.00),
 

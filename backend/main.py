@@ -21,6 +21,7 @@ import zipfile
 from dataclasses import asdict
 from pathlib import Path
 
+import fitz
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -96,6 +97,22 @@ def _save_upload(file: UploadFile) -> str:
     return str(dest)
 
 
+def _merge_pdfs(paths: list[str], out_path: str) -> str:
+    """Unisce più PDF caricati per la stessa categoria (es. pianta + prospetti +
+    sezioni) in un unico documento, nell'ordine in cui sono stati selezionati,
+    così la pipeline di estrazione (che lavora su un solo file) resta invariata.
+    """
+    if len(paths) == 1:
+        return paths[0]
+    merged = fitz.open()
+    for p in paths:
+        with fitz.open(p) as d:
+            merged.insert_pdf(d)
+    merged.save(out_path)
+    merged.close()
+    return out_path
+
+
 @app.get("/api/intake/requirements")
 async def api_intake_requirements(tipo_intervento: str):
     if tipo_intervento not in TIPI_INTERVENTO:
@@ -154,10 +171,10 @@ async def api_upload_prezzario(
 @app.post("/api/generate")
 async def api_generate(
     tipo_intervento: str = Form(...),
-    file_progetto: UploadFile = File(...),
-    file_stato_di_fatto: UploadFile | None = File(None),
-    file_strutturale: UploadFile | None = File(None),
-    file_copertura: UploadFile | None = File(None),
+    file_progetto: list[UploadFile] = File(...),
+    file_stato_di_fatto: list[UploadFile] = File(default=[]),
+    file_strutturale: list[UploadFile] = File(default=[]),
+    file_copertura: list[UploadFile] = File(default=[]),
     nome_progetto: str = Form("Progetto senza nome"),
     committente: str = Form(""),
     ubicazione: str = Form(""),
@@ -171,10 +188,23 @@ async def api_generate(
     if tipo_intervento not in TIPI_INTERVENTO:
         raise HTTPException(400, f"tipo_intervento deve essere uno tra {TIPI_INTERVENTO}")
 
-    pdf_progetto_path = _save_upload(file_progetto)
-    pdf_sdf_path = _save_upload(file_stato_di_fatto) if file_stato_di_fatto else None
-    pdf_strut_path = _save_upload(file_strutturale) if file_strutturale else None
-    pdf_cop_path = _save_upload(file_copertura) if file_copertura else None
+    job_id = uuid.uuid4().hex
+
+    # Ogni categoria può comprendere più elaborati (es. pianta + prospetti + sezioni):
+    # vengono salvati singolarmente e poi uniti in un unico PDF nell'ordine di selezione.
+    progetto_paths = [_save_upload(f) for f in file_progetto if f.filename]
+    sdf_paths = [_save_upload(f) for f in file_stato_di_fatto if f.filename]
+    strut_paths = [_save_upload(f) for f in file_strutturale if f.filename]
+    cop_paths = [_save_upload(f) for f in file_copertura if f.filename]
+
+    if not progetto_paths:
+        return JSONResponse(status_code=422, content={
+            "error": "Carica almeno un elaborato per la pianta di progetto."})
+
+    pdf_progetto_path = _merge_pdfs(progetto_paths, str(UPLOAD_DIR / f"{job_id}_progetto_unito.pdf"))
+    pdf_sdf_path = _merge_pdfs(sdf_paths, str(UPLOAD_DIR / f"{job_id}_sdf_unito.pdf")) if sdf_paths else None
+    pdf_strut_path = _merge_pdfs(strut_paths, str(UPLOAD_DIR / f"{job_id}_strutturale_unito.pdf")) if strut_paths else None
+    pdf_cop_path = _merge_pdfs(cop_paths, str(UPLOAD_DIR / f"{job_id}_copertura_unito.pdf")) if cop_paths else None
 
     if tipo_intervento == "ristrutturazione" and not pdf_sdf_path:
         return JSONResponse(status_code=422, content={
@@ -184,7 +214,6 @@ async def api_generate(
     parametri_overrides = json.loads(parametri_json)
     meta = ProjectMeta(nome_progetto=nome_progetto, committente=committente, ubicazione=ubicazione)
 
-    job_id = uuid.uuid4().hex
     excel_out = str(OUTPUT_DIR / f"{job_id}_computo.xlsx")
     primus_out = str(OUTPUT_DIR / f"{job_id}_elenco_prezzi_primus.xlsx")
     word_out = str(OUTPUT_DIR / f"{job_id}_computo.docx")

@@ -42,7 +42,8 @@ QUESTIONS: list[CapitolatoQuestion] = [
         id="porte_interne", categoria="Porte interne",
         testo="Che tipologia di porte interne è prevista?",
         opzioni=["Porta tamburata laminata standard", "Porta tamburata laccata",
-                 "Porta in legno massello", "Altro (specificare a parte)"],
+                 "Porta in legno massello", "Porta rasomuro (a filo muro, a scomparsa)",
+                 "Altro (specificare a parte)"],
     ),
     CapitolatoQuestion(
         id="impianto_elettrico", categoria="Impianto elettrico",

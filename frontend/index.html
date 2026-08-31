@@ -40,29 +40,37 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
 
 <section id="step1">
   <h2>2. Elaborati grafici (PDF vettoriali, in scala, quotati)</h2>
-  <label>Pianta — stato di progetto (obbligatoria)</label>
-  <input type="file" id="fileProgetto" accept="application/pdf" />
+  <small class="hint">Per ogni riga puoi selezionare più file insieme (es. pianta + prospetti + sezioni): verranno
+  uniti automaticamente in un unico documento nell'ordine in cui li selezioni. Importante: seleziona per primo
+  il file la cui PRIMA pagina è la pianta quotata — è quella pagina che viene letta per riconoscere vani e
+  aperture; gli altri file/pagine vengono inclusi come riferimento ma non ancora analizzati automaticamente.</small>
+
+  <label>Pianta, prospetti e sezioni — stato di progetto (obbligatorio almeno un file, con la pianta per primo)</label>
+  <input type="file" id="fileProgetto" accept="application/pdf" multiple />
 
   <div id="rowStatoDiFatto" style="display:none">
-    <label>Pianta — stato di fatto (obbligatoria per ristrutturazione)</label>
-    <input type="file" id="fileStatoDiFatto" accept="application/pdf" />
+    <label>Pianta e sezioni — stato di fatto (obbligatorio per ristrutturazione)</label>
+    <input type="file" id="fileStatoDiFatto" accept="application/pdf" multiple />
   </div>
 
-  <label>Pianta strutturale con abaco pilastri/travi</label>
-  <input type="file" id="fileStrutturale" accept="application/pdf" />
-  <label>Pagina abaco pilastri/travi nel PDF strutturale (0 = prima pagina)</label>
+  <label>Piante e sezioni strutturali con abaco pilastri/travi (se più file, la pianta strutturale per prima)</label>
+  <input type="file" id="fileStrutturale" accept="application/pdf" multiple />
+  <label>Pagina abaco pilastri/travi nel documento strutturale unito (0 = prima pagina; se carichi più file, conta le
+  pagine in sequenza secondo l'ordine di selezione)</label>
   <input type="number" id="structuralLegendPage" value="1" />
 
-  <label>Pianta di copertura (facoltativa: se assente si usa un'approssimazione dal sedime)</label>
-  <input type="file" id="fileCopertura" accept="application/pdf" />
+  <label>Pianta di copertura (facoltativa, se più file la pianta di copertura per prima: se assente si usa
+  un'approssimazione dal sedime)</label>
+  <input type="file" id="fileCopertura" accept="application/pdf" multiple />
 
-  <label>Pagina abaco serramenti nella pianta di progetto (0 = prima pagina)</label>
+  <label>Pagina abaco serramenti nel documento di progetto unito (0 = prima pagina; se carichi più file, conta le
+  pagine in sequenza secondo l'ordine di selezione)</label>
   <input type="number" id="legendPage" value="1" />
 
   <button id="btnValidate">Verifica elaborati</button>
   <div id="validateMsg"></div>
-  <small class="hint">Ogni PDF deve essere vettoriale, riportare la scala (es. "SCALA 1:100") ed essere quotato:
-  in caso contrario il caricamento viene rifiutato.</small>
+  <small class="hint">Ogni singolo PDF caricato deve essere vettoriale, riportare la scala (es. "SCALA 1:100") ed
+  essere quotato: in caso contrario il caricamento viene rifiutato.</small>
 </section>
 
 <section id="step2" style="display:none">
@@ -113,6 +121,12 @@ const API = ""; // stesso host/porta del backend: il sito e le API sono un unico
 let currentQuestions = [];
 let currentParams = [];
 
+function toggleAltro(qid) {
+  const checked = document.querySelector(`input[name="${qid}"]:checked`);
+  const box = document.getElementById(`altroBox_${qid}`);
+  if (box) box.style.display = (checked && checked.value.startsWith("Altro")) ? "block" : "none";
+}
+
 function tipoIntervento() {
   return document.querySelector('input[name="tipoIntervento"]:checked').value;
 }
@@ -132,18 +146,19 @@ document.querySelectorAll('input[name="tipoIntervento"]').forEach(r => r.onchang
 loadChecklist();
 
 document.getElementById("btnValidate").onclick = async () => {
-  const progetto = document.getElementById("fileProgetto").files[0];
-  if (!progetto) { alert("Seleziona almeno la pianta di progetto."); return; }
+  const progetto = Array.from(document.getElementById("fileProgetto").files);
+  if (!progetto.length) { alert("Seleziona almeno la pianta di progetto."); return; }
   const tipo = tipoIntervento();
-  const sdf = document.getElementById("fileStatoDiFatto").files[0];
-  if (tipo === "ristrutturazione" && !sdf) { alert("Per una ristrutturazione carica anche lo stato di fatto."); return; }
+  const sdf = Array.from(document.getElementById("fileStatoDiFatto").files);
+  if (tipo === "ristrutturazione" && !sdf.length) { alert("Per una ristrutturazione carica anche lo stato di fatto."); return; }
+  const strutturale = Array.from(document.getElementById("fileStrutturale").files);
+  const copertura = Array.from(document.getElementById("fileCopertura").files);
 
-  const toValidate = [["progetto", progetto]];
-  if (sdf) toValidate.push(["stato di fatto", sdf]);
-  const strutturale = document.getElementById("fileStrutturale").files[0];
-  if (strutturale) toValidate.push(["strutturale", strutturale]);
-  const copertura = document.getElementById("fileCopertura").files[0];
-  if (copertura) toValidate.push(["copertura", copertura]);
+  const toValidate = [];
+  progetto.forEach((f, i) => toValidate.push([`progetto ${i + 1}/${progetto.length}: ${f.name}`, f]));
+  sdf.forEach((f, i) => toValidate.push([`stato di fatto ${i + 1}/${sdf.length}: ${f.name}`, f]));
+  strutturale.forEach((f, i) => toValidate.push([`strutturale ${i + 1}/${strutturale.length}: ${f.name}`, f]));
+  copertura.forEach((f, i) => toValidate.push([`copertura ${i + 1}/${copertura.length}: ${f.name}`, f]));
 
   const msgEl = document.getElementById("validateMsg");
   msgEl.textContent = "Verifica in corso...";
@@ -218,8 +233,13 @@ document.getElementById("btnQuestions").onclick = async () => {
   currentQuestions.forEach(q => {
     const div = document.createElement("div");
     div.className = "question";
-    div.innerHTML = `<strong>${q.categoria}</strong><br>${q.testo}<br>` +
-      q.opzioni.map(o => `<label style="font-weight:normal"><input type="radio" name="${q.id}" value="${o}"> ${o}</label>`).join("");
+    const opts = q.opzioni.map(o =>
+      `<label style="font-weight:normal"><input type="radio" name="${q.id}" value="${o.replace(/"/g, '&quot;')}" onchange="toggleAltro('${q.id}')"> ${o}</label>`
+    ).join("");
+    div.innerHTML = `<strong>${q.categoria}</strong><br>${q.testo}<br>` + opts +
+      `<div id="altroBox_${q.id}" style="display:none; margin-top:.4rem">
+         <input type="text" id="altroText_${q.id}" placeholder="Specifica qui cosa intendi per &quot;Altro&quot;...">
+       </div>`;
     container.appendChild(div);
   });
 
@@ -244,7 +264,13 @@ document.getElementById("btnGenerate").onclick = async () => {
   const answers = {};
   currentQuestions.forEach(q => {
     const checked = document.querySelector(`input[name="${q.id}"]:checked`);
-    if (checked) answers[q.id] = checked.value;
+    if (checked) {
+      answers[q.id] = checked.value;
+      if (checked.value.startsWith("Altro")) {
+        const t = document.getElementById(`altroText_${q.id}`);
+        if (t && t.value.trim()) answers[`${q.id}_dettaglio`] = t.value.trim();
+      }
+    }
   });
   const parametri = {};
   currentParams.forEach(p => {
@@ -254,13 +280,10 @@ document.getElementById("btnGenerate").onclick = async () => {
 
   const fd = new FormData();
   fd.append("tipo_intervento", tipoIntervento());
-  fd.append("file_progetto", document.getElementById("fileProgetto").files[0]);
-  const sdf = document.getElementById("fileStatoDiFatto").files[0];
-  if (sdf) fd.append("file_stato_di_fatto", sdf);
-  const strutturale = document.getElementById("fileStrutturale").files[0];
-  if (strutturale) fd.append("file_strutturale", strutturale);
-  const copertura = document.getElementById("fileCopertura").files[0];
-  if (copertura) fd.append("file_copertura", copertura);
+  Array.from(document.getElementById("fileProgetto").files).forEach(f => fd.append("file_progetto", f));
+  Array.from(document.getElementById("fileStatoDiFatto").files).forEach(f => fd.append("file_stato_di_fatto", f));
+  Array.from(document.getElementById("fileStrutturale").files).forEach(f => fd.append("file_strutturale", f));
+  Array.from(document.getElementById("fileCopertura").files).forEach(f => fd.append("file_copertura", f));
 
   fd.append("nome_progetto", document.getElementById("nomeProgetto").value);
   fd.append("committente", document.getElementById("committente").value);
