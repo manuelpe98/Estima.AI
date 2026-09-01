@@ -3,7 +3,7 @@ che l'utente carica progetto per progetto (uno per regione/anno, riutilizzabili)
 from __future__ import annotations
 import sqlite3
 from pathlib import Path
-from .seed_data import PLACEHOLDER_PREZZARIO_META, PLACEHOLDER_VOCI
+from .seed_data import PLACEHOLDER_PREZZARIO_META, PLACEHOLDER_VOCI, PLACEHOLDER_SEED_VERSION
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS prezzari (
@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS prezzari (
     anno INTEGER NOT NULL,
     nome TEXT NOT NULL,
     is_placeholder INTEGER NOT NULL DEFAULT 0,
-    data_caricamento TEXT DEFAULT CURRENT_TIMESTAMP
+    data_caricamento TEXT DEFAULT CURRENT_TIMESTAMP,
+    seed_version TEXT
 );
 
 CREATE TABLE IF NOT EXISTS voci (
@@ -33,21 +34,49 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    # Migrazione: 'seed_version' è stata aggiunta dopo la prima versione dello
+    # schema. Su un database esistente creato prima di questa colonna,
+    # CREATE TABLE IF NOT EXISTS non la aggiunge da sola: va fatto a mano.
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(prezzari)").fetchall()}
+    if "seed_version" not in cols:
+        conn.execute("ALTER TABLE prezzari ADD COLUMN seed_version TEXT")
+        conn.commit()
     return conn
 
 
 def ensure_placeholder_seed(conn: sqlite3.Connection) -> int:
+    """Crea (o aggiorna) il prezzario placeholder di esempio.
+
+    Il database dei prezzari è su un volume persistente (sopravvive ai
+    redeploy): senza un controllo di versione, una volta creata la prima
+    volta, la riga placeholder non verrebbe più toccata — e ogni nuova voce
+    aggiunta a PLACEHOLDER_VOCI in una versione successiva del codice
+    resterebbe invisibile sull'istanza già in uso. SEED_VERSION (hash del
+    contenuto di PLACEHOLDER_VOCI) permette di accorgersi che il catalogo è
+    cambiato e riallinearlo, senza toccare eventuali prezzari REALI caricati
+    dall'utente (is_placeholder = 0, mai modificati da questa funzione)."""
     row = conn.execute(
-        "SELECT id FROM prezzari WHERE is_placeholder = 1 LIMIT 1"
+        "SELECT id, seed_version FROM prezzari WHERE is_placeholder = 1 LIMIT 1"
     ).fetchone()
-    if row:
+    if row and row["seed_version"] == PLACEHOLDER_SEED_VERSION:
         return row["id"]
-    cur = conn.execute(
-        "INSERT INTO prezzari (regione, anno, nome, is_placeholder) VALUES (?, ?, ?, 1)",
-        (PLACEHOLDER_PREZZARIO_META["regione"], PLACEHOLDER_PREZZARIO_META["anno"],
-         PLACEHOLDER_PREZZARIO_META["nome"]),
-    )
-    prezzario_id = cur.lastrowid
+
+    if row:
+        prezzario_id = row["id"]
+        conn.execute("DELETE FROM voci WHERE prezzario_id = ?", (prezzario_id,))
+        conn.execute(
+            "UPDATE prezzari SET regione = ?, anno = ?, nome = ?, seed_version = ? WHERE id = ?",
+            (PLACEHOLDER_PREZZARIO_META["regione"], PLACEHOLDER_PREZZARIO_META["anno"],
+             PLACEHOLDER_PREZZARIO_META["nome"], PLACEHOLDER_SEED_VERSION, prezzario_id),
+        )
+    else:
+        cur = conn.execute(
+            "INSERT INTO prezzari (regione, anno, nome, is_placeholder, seed_version) VALUES (?, ?, ?, 1, ?)",
+            (PLACEHOLDER_PREZZARIO_META["regione"], PLACEHOLDER_PREZZARIO_META["anno"],
+             PLACEHOLDER_PREZZARIO_META["nome"], PLACEHOLDER_SEED_VERSION),
+        )
+        prezzario_id = cur.lastrowid
+
     conn.executemany(
         "INSERT INTO voci (prezzario_id, categoria, sotto_tipo, codice, descrizione, unita_misura, prezzo) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",

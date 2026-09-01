@@ -19,6 +19,11 @@ CATEGORY_KEYWORDS = {
     "copertura_tipo": ["copertura", "manto di copertura", "tetto"],
     "cappotto_termico": ["cappotto", "isolamento a cappotto", "isolamento termico esterno", "eps", "polistirene",
                           "lana di roccia", "fibra di legno"],
+    "tipo_solaio": ["laterocemento", "predalles", "soletta piena", "solaio in c.a."],
+    "tipo_pareti_divisorie": ["parete divisoria", "tramezzo", "tramezzatura", "cartongesso", "laterizio forato"],
+    "richiede_contropareti": ["controparete", "contropareti"],
+    "vespaio_aerato": ["vespaio"],
+    "velette": ["veletta", "velette", "gola luminosa"],
 }
 
 QUESTIONS: list[CapitolatoQuestion] = [
@@ -76,6 +81,34 @@ QUESTIONS: list[CapitolatoQuestion] = [
         id="cappotto_termico", categoria="Cappotto termico esterno",
         testo="Che materiale isolante è previsto per il cappotto termico esterno?",
         opzioni=["EPS/polistirene", "Lana di roccia", "Fibra di legno", "Altro (specificare a parte)"],
+    ),
+    CapitolatoQuestion(
+        id="tipo_solaio", categoria="Solai",
+        testo="Come sono realizzati i solai?",
+        opzioni=["Laterocemento (pacchetto completo)", "Predalles (pacchetto completo)",
+                 "Soletta piena in cemento armato (getto in opera)", "Altro (specificare a parte)"],
+    ),
+    CapitolatoQuestion(
+        id="tipo_pareti_divisorie", categoria="Pareti divisorie interne",
+        testo="Come sono realizzate le pareti divisorie interne (tramezzature)?",
+        opzioni=["Muratura in laterizio forato", "Cartongesso su orditura metallica",
+                 "Già esistenti / non richieste in questo intervento", "Altro (specificare a parte)"],
+    ),
+    CapitolatoQuestion(
+        id="richiede_contropareti", categoria="Contropareti interne",
+        testo="Sono previste contropareti interne in cartongesso (es. per il passaggio di impianti a parete)?",
+        opzioni=["Sì", "No"],
+    ),
+    CapitolatoQuestion(
+        id="vespaio_aerato", categoria="Vespaio aerato",
+        testo="È prevista la formazione di un vespaio aerato sotto la pavimentazione del piano terra/interrato?",
+        opzioni=["Sì", "No"],
+    ),
+    CapitolatoQuestion(
+        id="velette", categoria="Velette",
+        testo="Sono previste velette in cartongesso (es. per la chiusura di soglie finestre, per il "
+              "passaggio di tende o per l'alloggiamento di illuminazione indiretta)?",
+        opzioni=["Sì", "No"],
     ),
 ]
 

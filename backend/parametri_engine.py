@@ -29,7 +29,8 @@ PARAMETRI: list[ParametroNumerico] = [
                        "Usato solo se la struttura verticale scelta è 'muratura portante'"),
     ParametroNumerico("lunghezza_media_travi_m", "Lunghezza media delle travi in c.a.", 4.00, "m",
                        "Stima parametrica in assenza di misura diretta della campata da disegno"),
-    ParametroNumerico("incidenza_acciaio_kg_m3", "Incidenza acciaio per c.a. (kg per m³ di calcestruzzo)", 100.0, "kg/m3",
+    ParametroNumerico("incidenza_acciaio_kg_m3", "Incidenza acciaio nelle strutture in elevazione "
+                       "(pilastri/travi, kg per m³ di calcestruzzo)", 100.0, "kg/m3",
                        "Valore parametrico tipico per un computo estimativo preliminare"),
     ParametroNumerico("angolo_falda_gradi", "Angolo medio delle falde di copertura", 25.0, "gradi",
                        "0 per copertura piana; usato per correggere la superficie in pianta"),
@@ -48,6 +49,23 @@ PARAMETRI: list[ParametroNumerico] = [
                        "pianta, per lo scavo, la vasca e l'impermeabilizzazione — verifica dalle sezioni/cementi armati"),
     ParametroNumerico("larghezza_bordo_piscina_m", "Larghezza del bordo perimetrale della piscina", 1.00, "m",
                        "Usata solo se è stata individuata una piscina in pianta, per la pavimentazione del bordo"),
+    ParametroNumerico("costo_approntamento_cantiere_eur", "Costo di approntamento del cantiere (a corpo)",
+                       15000.0, "€",
+                       "Dipende molto dalla dimensione, durata e accessibilità del cantiere: valore parametrico "
+                       "indicativo per un cantiere residenziale di medie dimensioni, da correggere"),
+    ParametroNumerico("spessore_magrone_cm", "Spessore del magrone di sottofondazione", 10.0, "cm",
+                       "Usato per il volume di calcestruzzo magro (magrone) sotto le fondazioni"),
+    ParametroNumerico("fattore_casseratura_fondazioni", "Sviluppo delle casseforme di fondazione (facce per "
+                       "metro di perimetro)", 2.0, "facce",
+                       "2 = casseratura su entrambe le facce (interna ed esterna) del perimetro di fondazione; "
+                       "non tiene conto di eventuali setti/muri di fondazione interni, da aggiungere a mano se presenti"),
+    ParametroNumerico("incidenza_acciaio_fondazioni_kg_m3", "Incidenza acciaio nelle fondazioni "
+                       "(kg per m³ di calcestruzzo)", 80.0, "kg/m3",
+                       "Valore parametrico tipico per un computo estimativo preliminare"),
+    ParametroNumerico("incidenza_acciaio_solaio_kg_m3", "Incidenza acciaio nel solaio in soletta piena "
+                       "(kg per m³ di calcestruzzo)", 90.0, "kg/m3",
+                       "Usata solo se il solaio è indicato come 'soletta piena in cemento armato'; valore "
+                       "parametrico tipico per un computo estimativo preliminare"),
 ]
 
 

@@ -29,6 +29,12 @@ CATEGORIA_LABELS = {
     "piscina_bordo": "Piscina — bordo perimetrale",
     "scala_esterna": "Scala esterna",
     "opere_esterne": "Opere esterne e sottoservizi",
+    "cantiere": "Approntamento di cantiere",
+    "spinottature": "Spinottature",
+    "vespaio": "Vespaio aerato",
+    "contropareti": "Contropareti interne",
+    "pareti_divisorie": "Pareti divisorie interne",
+    "velette": "Velette",
 }
 
 
@@ -105,6 +111,11 @@ def build_computo(
     strut_tipo = answers.get("tipo_struttura", "Cemento armato (pilastri e travi)")
     cop_tipo = answers.get("copertura_tipo", "Altro (specificare a parte)")
     cap_tipo = answers.get("cappotto_termico", "Altro (specificare a parte)")
+    tipo_solaio = answers.get("tipo_solaio", "Laterocemento (pacchetto completo)")
+    tipo_pareti_div = answers.get("tipo_pareti_divisorie", "Già esistenti / non richieste in questo intervento")
+    contropareti_si = answers.get("richiede_contropareti", "No") == "Sì"
+    vespaio_si = answers.get("vespaio_aerato", "No") == "Sì"
+    velette_si = answers.get("velette", "No") == "Sì"
 
     altezza_interna = parametri.get("altezza_interna_m", 2.70)
     altezza_interpiano = parametri.get("altezza_interpiano_strutturale_m", 3.00)
@@ -119,6 +130,11 @@ def build_computo(
     incidenza_impianti_pct = parametri.get("incidenza_impianti_pct", 18.0)
     profondita_piscina = parametri.get("profondita_piscina_m", 1.50)
     larghezza_bordo_piscina = parametri.get("larghezza_bordo_piscina_m", 1.00)
+    costo_cantiere = parametri.get("costo_approntamento_cantiere_eur", 15000.0)
+    spessore_magrone_m = parametri.get("spessore_magrone_cm", 10.0) / 100.0
+    fattore_casseratura_fnd = parametri.get("fattore_casseratura_fondazioni", 2.0)
+    incidenza_acciaio_fnd = parametri.get("incidenza_acciaio_fondazioni_kg_m3", 80.0)
+    incidenza_acciaio_sol = parametri.get("incidenza_acciaio_solaio_kg_m3", 90.0)
 
     # --- Finiture (pavimenti, pareti, serramenti, porte) ---
     tot_area_pav = sum(r.area_m2 for r in rooms)
@@ -135,6 +151,41 @@ def build_computo(
             f"La superficie delle pareti interne è stimata con altezza interna di {altezza_interna} m "
             "(parametro confermato dall'utente) e non detrae l'ingombro di porte e finestre."
         )
+
+    # --- Pareti divisorie interne (costruzione, distinta dalla finitura sopra) ---
+    # Lunghezza delle pareti divisorie stimata come (perimetro totale dei vani − perimetro
+    # esterno dell'involucro) / 2: le pareti condivise tra due vani vengono contate due
+    # volte nella somma dei perimetri dei singoli vani (una volta per ciascun vano
+    # adiacente), mentre le pareti perimetrali una volta sola — sottraendo il perimetro
+    # esterno e dividendo per due si isola quindi la lunghezza reale delle sole pareti
+    # divisorie interne (approssimazione geometrica, da verificare).
+    lunghezza_pareti_divisorie = max(0.0, (tot_perimetro - perimetro_esterno_m) / 2.0)
+    if lunghezza_pareti_divisorie > 0 and not tipo_pareti_div.startswith("Già esistenti"):
+        area_pareti_divisorie = lunghezza_pareti_divisorie * altezza_interna
+        add(_find_voce_con_dettaglio(voci, "pareti_divisorie", tipo_pareti_div, answers, "tipo_pareti_divisorie"),
+            area_pareti_divisorie,
+            f"Lunghezza pareti divisorie stimata (perimetro vani {round(tot_perimetro,2)} m − perimetro esterno "
+            f"{round(perimetro_esterno_m,2)} m) / 2 = {round(lunghezza_pareti_divisorie,2)} m, x altezza interna "
+            f"{altezza_interna} m")
+        note.append(
+            "La lunghezza delle pareti divisorie interne è una stima geometrica ((perimetro totale dei vani − "
+            "perimetro esterno) / 2), non la misura dell'asse reale dei tramezzi: va verificata sul disegno."
+        )
+
+    # --- Contropareti interne (solo se richieste dal capitolato) ---
+    if contropareti_si and perimetro_esterno_m > 0:
+        area_contropareti = perimetro_esterno_m * altezza_interna
+        add(_find_voce(voci, "contropareti", "standard"), area_contropareti,
+            f"Perimetro esterno ({round(perimetro_esterno_m,2)} m) x altezza interna ({altezza_interna} m) — "
+            "stima per il rivestimento dell'intero perimetro interno, da correggere se le contropareti "
+            "interessano solo alcune pareti")
+
+    # --- Velette (solo se richieste dal capitolato: sviluppo lineare non desumibile
+    # dalla pianta, sempre come voce segnaposto da completare a mano) ---
+    if velette_si:
+        add_placeholder(_find_voce(voci, "velette", "standard"),
+                         "Richieste dal capitolato ma non misurabili dalla sola pianta (posizione e sviluppo "
+                         "lineare dipendono dal progetto di dettaglio): misura e valorizza a mano")
 
     finestre = [o for o in openings if o.kind == "finestra"]
     con_misure = [o for o in finestre if o.width_cm and o.height_cm]
@@ -162,6 +213,16 @@ def build_computo(
     # totale di TUTTE le altre lavorazioni già computate (vedi sotto, dopo fondazioni/
     # solai/cappotto/impermeabilizzazioni/copertura/demolizioni: manca solo questa voce).
 
+    # --- Approntamento di cantiere (a corpo, prezzo dal parametro dedicato: il costo
+    # reale dipende dalla dimensione/durata del cantiere, non dalla sola pianta) ---
+    if footprint_area_m2 > 0:
+        v_cantiere = _find_voce(voci, "cantiere", "approntamento")
+        if v_cantiere:
+            v_cantiere = dict(v_cantiere)
+            v_cantiere["prezzo"] = costo_cantiere
+            add(v_cantiere, 1, "Voce a corpo, prezzo dal parametro 'Costo di approntamento del cantiere' "
+                                "(confermato dall'utente)")
+
     # --- Scavi ---
     if footprint_area_m2 > 0:
         volume_scavo = footprint_area_m2 * profondita_scavo
@@ -175,17 +236,63 @@ def build_computo(
             "rampe/scale esterne): il volume di scavo va sempre verificato e corretto per queste voci."
         )
 
-    # --- Fondazioni ---
+    # --- Fondazioni: magrone, calcestruzzo, casseforme e acciaio come voci distinte ---
     if footprint_area_m2 > 0:
         volume_fondazioni = footprint_area_m2 * spessore_fondazione_m
+        volume_magrone = footprint_area_m2 * spessore_magrone_m
+        add(_find_voce(voci, "fondazioni", "magrone"), volume_magrone,
+            f"Sedime edificio {round(footprint_area_m2,1)} m² x spessore magrone {spessore_magrone_m*100:.0f} cm "
+            "(parametro confermato dall'utente)")
         add(_find_voce(voci, "fondazioni", "standard"), volume_fondazioni,
             f"Sedime edificio {round(footprint_area_m2,1)} m² x spessore medio fondazioni "
             f"{spessore_fondazione_m*100:.0f} cm (parametro confermato dall'utente)")
+        if perimetro_esterno_m > 0:
+            area_casseforme_fnd = perimetro_esterno_m * spessore_fondazione_m * fattore_casseratura_fnd
+            add(_find_voce(voci, "fondazioni", "casseforme"), area_casseforme_fnd,
+                f"Perimetro esterno ({round(perimetro_esterno_m,2)} m) x altezza fondazione "
+                f"({spessore_fondazione_m*100:.0f} cm) x {fattore_casseratura_fnd:.0f} facce di casseratura "
+                "(parametro confermato dall'utente) — non include eventuali setti/muri di fondazione interni")
+        add(_find_voce(voci, "fondazioni", "acciaio"), volume_fondazioni * incidenza_acciaio_fnd,
+            f"Stima parametrica: {incidenza_acciaio_fnd:.0f} kg di acciaio per m³ di calcestruzzo di fondazione")
+        add_placeholder(
+            _find_voce(voci, "spinottature", "standard"),
+            "Quantità dipendente dal progetto strutturale esecutivo (ripresa dei getti), non desumibile dalla "
+            "sola pianta architettonica: misura e valorizza a mano"
+        )
+        note.append(
+            "Fondazioni: magrone, calcestruzzo, casseforme e acciaio sono voci separate, calcolate con "
+            "parametri dimensionali confermati dall'utente (spessori, incidenza acciaio, facce di "
+            "casseratura) — non da un progetto strutturale esecutivo, che resta l'unica fonte affidabile per "
+            "un computo definitivo."
+        )
+
+    # --- Vespaio aerato (solo se richiesto dal capitolato) ---
+    if vespaio_si and footprint_area_m2 > 0:
+        add(_find_voce(voci, "vespaio", "standard"), footprint_area_m2,
+            f"Sedime edificio {round(footprint_area_m2,1)} m²")
 
     # --- Solai (interpiano e/o contro terra: una sola voce a superficie di sedime,
     # NON moltiplicata per il numero di piani, perché il numero di piani non è
-    # dedotto in modo affidabile dai soli elaborati di pianta in questa versione) ---
-    if footprint_area_m2 > 0:
+    # dedotto in modo affidabile dai soli elaborati di pianta in questa versione).
+    # Pacchetto completo (laterocemento/predalles) in un'unica voce, oppure
+    # scomposto in casseforme/calcestruzzo/acciaio se il capitolato indica una
+    # soletta piena gettata in opera. ---
+    if footprint_area_m2 > 0 and tipo_solaio.startswith("Soletta piena"):
+        volume_solaio = footprint_area_m2 * (spessore_solaio_cm / 100.0)
+        add(_find_voce(voci, "solai", "casseforme"), footprint_area_m2,
+            f"Sedime edificio {round(footprint_area_m2,1)} m² (superficie del getto)")
+        add(_find_voce(voci, "solai", "calcestruzzo"), volume_solaio,
+            f"Sedime edificio {round(footprint_area_m2,1)} m² x spessore {spessore_solaio_cm:.0f} cm "
+            "(parametro confermato dall'utente)")
+        add(_find_voce(voci, "solai", "acciaio"), volume_solaio * incidenza_acciaio_sol,
+            f"Stima parametrica: {incidenza_acciaio_sol:.0f} kg di acciaio per m³ di calcestruzzo di solaio")
+        note.append(
+            "Il solaio in soletta piena è calcolato su UN solo livello (superficie del sedime): per edifici "
+            "su più piani va moltiplicato per il numero di solai interpiano/contro terra effettivamente "
+            "presenti, non dedotto automaticamente in questa versione — correggi la quantità nel passaggio "
+            "di revisione."
+        )
+    elif footprint_area_m2 > 0:
         add(_find_voce(voci, "solai", "standard"), footprint_area_m2,
             f"Sedime edificio {round(footprint_area_m2,1)} m² x 1 solaio (spessore medio "
             f"{spessore_solaio_cm:.0f} cm, da relazione ex Legge 10/91 se disponibile)")
@@ -251,22 +358,28 @@ def build_computo(
         )
     elif strut_tipo.startswith("Cemento armato") and structural_elements:
         volume_cls = 0.0
+        area_casseforme_cls = 0.0
         for el in structural_elements:
             if not (el.dim1_cm and el.dim2_cm):
                 continue
             sezione_m2 = (el.dim1_cm / 100.0) * (el.dim2_cm / 100.0)
+            perimetro_sezione_m = 2 * (el.dim1_cm + el.dim2_cm) / 100.0
             lunghezza = altezza_interpiano if el.kind == "pilastro" else lunghezza_trave
             volume_cls += sezione_m2 * lunghezza * el.count
+            area_casseforme_cls += perimetro_sezione_m * lunghezza * el.count
         if volume_cls > 0:
             add(_find_voce(voci, "strutture_cls", "standard"), volume_cls,
                 "Volume calcestruzzo pilastri (sezione da abaco x altezza di interpiano) e travi "
                 "(sezione da abaco x lunghezza media parametrica)")
+            add(_find_voce(voci, "strutture_cls", "casseforme"), area_casseforme_cls,
+                "Superficie casseforme: perimetro della sezione (da abaco) x altezza di interpiano/lunghezza "
+                "media, per pilastri e travi")
             add(_find_voce(voci, "strutture_ferro", "standard"), volume_cls * incidenza_acciaio,
                 f"Stima parametrica: {incidenza_acciaio} kg di acciaio per m³ di calcestruzzo")
             note.append(
                 "Il computo delle strutture in elevazione in c.a. è una stima preliminare: la lunghezza delle "
-                "travi e l'incidenza dell'acciaio sono valori parametrici confermati dall'utente, non misurati "
-                "da un disegno esecutivo armato. Le opere di casseratura non sono comprese in questa versione."
+                "travi, la superficie di casseratura e l'incidenza dell'acciaio sono valori parametrici "
+                "confermati dall'utente o derivati dall'abaco, non misurati da un disegno esecutivo armato."
             )
         missing_dims = [el for el in structural_elements if not (el.dim1_cm and el.dim2_cm)]
         if missing_dims:
