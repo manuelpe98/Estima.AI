@@ -6,3 +6,4 @@ shapely
 openpyxl
 python-docx
 pydantic
+anthropic

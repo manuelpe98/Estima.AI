@@ -32,6 +32,17 @@
   button.small { margin: 0; padding: .25rem .5rem; font-size: .78rem; background: #a12626; }
   button.secondary.small-add { margin-top: .4rem; padding: .35rem .7rem; font-size: .82rem; }
   .note-box { font-size: .85rem; background: #fff8e6; color: #7a5b00; border-radius: 6px; padding: .5rem .7rem; margin-top: .5rem; white-space: pre-wrap; }
+  .note-box-warn { background: #fdeaea; color: #a12626; font-weight: 600; border: 1px solid #f3b8b8; }
+  .ai-comment-cell { min-width: 200px; }
+  .ai-comment-log { max-height: 90px; overflow-y: auto; margin-bottom: .3rem; font-size: .78rem; }
+  .ai-comment-log div { padding: .1rem 0; }
+  .ai-comment-log .log-tu { color: #1b2733; }
+  .ai-comment-log .log-tu::before { content: "🧑 "; }
+  .ai-comment-log .log-ai { color: #1c6b3d; }
+  .ai-comment-log .log-ai::before { content: "🤖 "; }
+  .ai-comment-log .log-err { color: #a12626; }
+  .ai-comment-log .log-err::before { content: "⚠️ "; }
+  .ai-comment-input { font-size: .8rem !important; padding: .3rem !important; }
 </style>
 </head>
 <body>
@@ -77,6 +88,12 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
   pagine in sequenza secondo l'ordine di selezione)</label>
   <input type="number" id="legendPage" value="1" />
 
+  <label>Relazione tecnica ex Legge 10/91 (facoltativa: stratigrafie di murature, solai e copertura)</label>
+  <input type="file" id="fileLegge10" accept="application/pdf" multiple />
+  <small class="hint">Non è un elaborato in scala: viene solo letta come testo, per riportarti gli spessori
+  dichiarati come riferimento e, se riconoscibili, proporli nei parametri dimensionali del passaggio 5. Se il PDF
+  è una scansione senza testo selezionabile non può essere letta automaticamente.</small>
+
   <button id="btnValidate">Verifica elaborati ed estrai vani</button>
   <div id="validateMsg"></div>
   <small class="hint">Ogni singolo PDF caricato deve essere vettoriale, riportare la scala (es. "SCALA 1:100") ed
@@ -90,6 +107,16 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
   puoi aggiungere o eliminare righe) prima di procedere al calcolo dei prezzi. Per una ristrutturazione, il
   confronto stato di fatto/progetto usato per le demolizioni resta quello rilevato automaticamente.</small>
   <div id="extractNotes"></div>
+  <div id="legge10Panel" style="display:none">
+    <h3>Stratigrafie — riferimento da Legge 10/91</h3>
+    <small class="hint">Testo estratto così com'è dal documento caricato (nessuna interpretazione automatica dei
+    materiali): usalo come riferimento quando rispondi alle domande su murature, solai e copertura più avanti.</small>
+    <div id="legge10Notes"></div>
+    <details style="margin-top:.4rem">
+      <summary>Mostra i passaggi del documento individuati (<span id="legge10Count">0</span>)</summary>
+      <div id="legge10Testo" class="note-box" style="max-height:260px; overflow-y:auto"></div>
+    </details>
+  </div>
 
   <h3>Vani (stato di progetto)</h3>
   <table class="edit-table" id="roomsTable">
@@ -155,11 +182,34 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
 </section>
 
 <section id="step4" style="display:none">
-  <h2>6. Dati progetto e generazione</h2>
+  <h2>6. Dati progetto</h2>
   <label>Nome progetto</label><input type="text" id="nomeProgetto" />
   <label>Committente</label><input type="text" id="committente" />
   <label>Ubicazione</label><input type="text" id="ubicazione" />
-  <button id="btnGenerate">Genera computo metrico</button>
+  <button id="btnCalcola">Calcola computo metrico</button>
+  <div id="calcolaMsg"></div>
+</section>
+
+<section id="step5" style="display:none">
+  <h2>7. Computo metrico — verifica, correggi e commenta prima di scaricare</h2>
+  <small class="hint">Ogni riga è modificabile a mano (descrizione, quantità, prezzo unitario): l'importo si ricalcola
+  automaticamente. Nella colonna Commento puoi anche scrivere un'osservazione o una richiesta in linguaggio
+  naturale (es. "raddoppia la quantità", "il prezzo reale è 65 €/m²", "questa voce non serve, eliminala") e premere
+  Invio: un'intelligenza artificiale interpreta la richiesta e aggiorna la riga di conseguenza, spiegandoti cosa
+  ha fatto — la conversazione resta nel file Excel e nella relazione Word come traccia delle modifiche. Se
+  l'istruzione non è chiara o richiede un dato che non hai fornito, te lo segnala invece di indovinare. Puoi
+  comunque aggiungere o eliminare righe a mano. Solo quando scarichi i file qui sotto viene generato il documento
+  definitivo.</small>
+  <div style="overflow-x:auto">
+  <table class="edit-table" id="vociTable">
+    <thead><tr><th>N.</th><th>Codice</th><th>Categoria</th><th>Descrizione</th><th>U.M.</th><th>Quantità</th>
+    <th>Prezzo un. (€)</th><th>Importo (€)</th><th>Commento</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  </div>
+  <button type="button" class="secondary small-add" id="btnAddVoce">+ Aggiungi voce</button>
+  <p><strong>Totale computo: € <span id="vociTotale">0,00</span></strong></p>
+  <button id="btnGenerate">Scarica computo definitivo (Excel + PriMus + Word)</button>
   <div id="generateMsg"></div>
 </section>
 
@@ -174,6 +224,9 @@ let currentRoomsSdf = [];
 let currentConfronto = [];
 let currentNotes = [];
 let currentValidationMessages = [];
+let currentLegge10 = null;
+let currentVoci = [];
+let currentMeta = null;
 
 function renderRoomsTable() {
   const tbody = document.querySelector("#roomsTable tbody");
@@ -250,6 +303,118 @@ document.getElementById("btnAddStruct").onclick = () => {
   renderStructTable();
 };
 
+function fmtEuro(n) {
+  return (n || 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function renderVociTable() {
+  const tbody = document.querySelector("#vociTable tbody");
+  tbody.innerHTML = "";
+  let totale = 0;
+  currentVoci.forEach((v, i) => {
+    const importo = (v.quantita || 0) * (v.prezzo_unitario || 0);
+    totale += importo;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${i + 1}</td>
+      <td><input type="text" value="${(v.codice||"").replace(/"/g,'&quot;')}" data-f="codice" style="width:90px"></td>
+      <td><input type="text" value="${(v.categoria||"").replace(/"/g,'&quot;')}" data-f="categoria" style="width:120px"></td>
+      <td><input type="text" value="${(v.descrizione||"").replace(/"/g,'&quot;')}" data-f="descrizione" style="min-width:220px"></td>
+      <td><input type="text" value="${(v.unita_misura||"").replace(/"/g,'&quot;')}" data-f="unita_misura" style="width:55px"></td>
+      <td><input type="number" step="0.01" value="${v.quantita ?? 0}" data-f="quantita"></td>
+      <td><input type="number" step="0.01" value="${v.prezzo_unitario ?? 0}" data-f="prezzo_unitario"></td>
+      <td class="voceImporto">€ ${fmtEuro(importo)}</td>
+      <td class="ai-comment-cell" style="min-width:200px">
+        <div class="ai-comment-log"></div>
+        <input type="text" class="ai-comment-input" placeholder="Scrivi un'osservazione o una modifica e premi Invio...">
+      </td>
+      <td><button type="button" class="small">×</button></td>`;
+    tr.querySelectorAll("input[data-f]").forEach(inp => inp.onchange = () => {
+      const f = inp.dataset.f;
+      if (f === "quantita" || f === "prezzo_unitario") currentVoci[i][f] = parseFloat(inp.value) || 0;
+      else currentVoci[i][f] = inp.value;
+      if (f === "quantita" || f === "prezzo_unitario") renderVociTable();
+    });
+    renderAiLog(tr.querySelector(".ai-comment-log"), v.commento);
+    const aiInput = tr.querySelector(".ai-comment-input");
+    aiInput.onkeydown = (ev) => {
+      if (ev.key === "Enter" && !ev.shiftKey) {
+        ev.preventDefault();
+        inviaIstruzioneAI(i, aiInput);
+      }
+    };
+    tr.querySelector("button.small").onclick = () => { currentVoci.splice(i, 1); renderVociTable(); };
+    tbody.appendChild(tr);
+  });
+  document.getElementById("vociTotale").textContent = fmtEuro(totale);
+}
+
+function renderAiLog(el, commento) {
+  if (!commento) { el.innerHTML = ""; return; }
+  el.innerHTML = commento.split("\n").filter(l => l.trim()).map(line => {
+    let cls = "log-note";
+    if (line.startsWith("[Tu]")) cls = "log-tu";
+    else if (line.startsWith("[AI]")) cls = "log-ai";
+    else if (line.startsWith("[Errore]")) cls = "log-err";
+    return `<div class="${cls}">${line.replace(/</g, "&lt;")}</div>`;
+  }).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+async function inviaIstruzioneAI(i, inputEl) {
+  const testo = inputEl.value.trim();
+  if (!testo) return;
+  const v = currentVoci[i];
+  if (!v) return;
+  inputEl.disabled = true;
+  const placeholderOriginale = inputEl.placeholder;
+  inputEl.placeholder = "Elaborazione in corso...";
+  try {
+    const res = await fetch(`${API}/api/interpreta-commento`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        voce: {
+          codice: v.codice, categoria: v.categoria, descrizione: v.descrizione,
+          unita_misura: v.unita_misura, quantita: v.quantita, prezzo_unitario: v.prezzo_unitario,
+          note: v.note,
+        },
+        istruzione: testo,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const errMsg = data.error || "Errore durante l'elaborazione.";
+      v.commento = (v.commento ? v.commento + "\n" : "") + `[Tu] ${testo}\n[Errore] ${errMsg}`;
+      renderVociTable();
+      return;
+    }
+    if (data.azione === "modifica") {
+      v.descrizione = data.descrizione;
+      v.unita_misura = data.unita_misura;
+      v.quantita = data.quantita;
+      v.prezzo_unitario = data.prezzo_unitario;
+      v.categoria = data.categoria;
+    }
+    v.commento = (v.commento ? v.commento + "\n" : "") + `[Tu] ${testo}\n[AI] ${data.risposta || ""}`;
+    if (data.azione === "elimina") {
+      currentVoci.splice(i, 1);
+    }
+    renderVociTable();
+  } catch (e) {
+    v.commento = (v.commento ? v.commento + "\n" : "") + `[Tu] ${testo}\n[Errore] Connessione al servizio AI fallita: ${e}`;
+    renderVociTable();
+  } finally {
+    inputEl.disabled = false;
+    inputEl.placeholder = placeholderOriginale;
+  }
+}
+document.getElementById("btnAddVoce").onclick = () => {
+  currentVoci.push({ numero: currentVoci.length + 1, codice: "MAN-01", categoria: "Altro",
+    descrizione: "Voce aggiunta manualmente", unita_misura: "cad", quantita: 1, prezzo_unitario: 0,
+    note: "Aggiunta manualmente in fase di revisione", commento: "" });
+  renderVociTable();
+};
+
 function toggleAltro(qid) {
   const checked = document.querySelector(`input[name="${qid}"]:checked`);
   const box = document.getElementById(`altroBox_${qid}`);
@@ -282,6 +447,7 @@ document.getElementById("btnValidate").onclick = async () => {
   if (tipo === "ristrutturazione" && !sdf.length) { alert("Per una ristrutturazione carica anche lo stato di fatto."); return; }
   const strutturale = Array.from(document.getElementById("fileStrutturale").files);
   const copertura = Array.from(document.getElementById("fileCopertura").files);
+  const legge10 = Array.from(document.getElementById("fileLegge10").files);
 
   const toValidate = [];
   progetto.forEach((f, i) => toValidate.push([`progetto ${i + 1}/${progetto.length}: ${f.name}`, f]));
@@ -321,6 +487,7 @@ document.getElementById("btnValidate").onclick = async () => {
   sdf.forEach(f => fd2.append("file_stato_di_fatto", f));
   strutturale.forEach(f => fd2.append("file_strutturale", f));
   copertura.forEach(f => fd2.append("file_copertura", f));
+  legge10.forEach(f => fd2.append("file_legge10", f));
   fd2.append("legend_page", document.getElementById("legendPage").value || "1");
   fd2.append("structural_legend_page", document.getElementById("structuralLegendPage").value || "1");
 
@@ -339,6 +506,7 @@ document.getElementById("btnValidate").onclick = async () => {
     currentConfronto = data2.confronto || [];
     currentNotes = data2.note_metodologiche || [];
     currentValidationMessages = data2.validation_messages || [];
+    currentLegge10 = data2.legge10 || null;
 
     renderRoomsTable();
     renderOpeningsTable();
@@ -346,8 +514,31 @@ document.getElementById("btnValidate").onclick = async () => {
     document.getElementById("footprintArea").value = data2.footprint_area_m2 || 0;
     document.getElementById("roofArea").value = data2.roof_area_m2 || 0;
     const notesEl = document.getElementById("extractNotes");
-    notesEl.innerHTML = currentNotes.length
-      ? `<div class="note-box">${currentNotes.map(n => n.replace(/</g,'&lt;')).join("\n\n")}</div>` : "";
+    notesEl.innerHTML = currentNotes.map(n => {
+      const esc = n.replace(/</g, "&lt;");
+      const cls = n.startsWith("ATTENZIONE") ? "note-box note-box-warn" : "note-box";
+      return `<div class="${cls}">${esc}</div>`;
+    }).join("");
+
+    const l10Panel = document.getElementById("legge10Panel");
+    if (currentLegge10) {
+      l10Panel.style.display = "block";
+      const l10Notes = document.getElementById("legge10Notes");
+      l10Notes.innerHTML = (currentLegge10.note || []).map(n =>
+        `<div class="note-box note-box-warn">${n.replace(/</g,'&lt;')}</div>`).join("");
+      const spessori = currentLegge10.spessori_rilevati_cm || {};
+      if (Object.keys(spessori).length) {
+        const labels = { parete_esterna: "parete esterna", solaio: "solaio", copertura: "copertura" };
+        l10Notes.innerHTML += `<div class="note-box">Spessori complessivi rilevati nel testo: ` +
+          Object.entries(spessori).map(([k, v]) => `${labels[k] || k}: ${v} cm`).join(", ") +
+          ` — verranno proposti (da confermare) nei parametri dimensionali al passaggio 5.</div>`;
+      }
+      const blocchi = currentLegge10.testo_riferimento || [];
+      document.getElementById("legge10Count").textContent = blocchi.length;
+      document.getElementById("legge10Testo").textContent = blocchi.join("\n\n---\n\n") || "Nessun passaggio trovato.";
+    } else {
+      l10Panel.style.display = "none";
+    }
 
     msgEl.textContent = report.join("\n") + `\n\nEstratti ${currentRooms.length} vani, ${currentOpenings.length} aperture, ${currentStruct.length} elementi strutturali.`;
     msgEl.className = "msg ok";
@@ -359,6 +550,14 @@ document.getElementById("btnValidate").onclick = async () => {
 };
 
 document.getElementById("btnConfirmVani").onclick = () => {
+  const footprint = parseFloat(document.getElementById("footprintArea").value) || 0;
+  const roof = parseFloat(document.getElementById("roofArea").value) || 0;
+  if (currentRooms.length === 0 && currentStruct.length === 0 && footprint <= 0 && roof <= 0) {
+    alert("Non c'è ancora nulla da computare: la tabella dei vani è vuota e anche sedime/copertura sono a 0.\n\n" +
+          "Aggiungi almeno un vano (con \"+ Aggiungi vano\") oppure indica un valore di sedime o copertura prima di procedere, " +
+          "altrimenti la generazione del computo fallirà.");
+    return;
+  }
   document.getElementById("step2").style.display = "block";
   loadPrezzari();
   document.getElementById("step2").scrollIntoView({ behavior: "smooth" });
@@ -427,11 +626,20 @@ document.getElementById("btnQuestions").onclick = async () => {
   currentParams = await resP.json();
   const pContainer = document.getElementById("paramsContainer");
   pContainer.innerHTML = "";
+  const spessori = (currentLegge10 && currentLegge10.spessori_rilevati_cm) || {};
   currentParams.forEach(p => {
     const div = document.createElement("div");
     div.className = "param-row";
-    div.innerHTML = `<label style="margin:0">${p.label} (${p.unita})${p.note ? `<br><small class="hint">${p.note}</small>` : ""}</label>` +
-      `<input type="number" step="0.01" id="param_${p.id}" value="${p.default}">`;
+    let valore = p.default;
+    let daLegge10 = false;
+    if (p.id === "spessore_muro_portante_cm" && spessori.parete_esterna) {
+      valore = spessori.parete_esterna;
+      daLegge10 = true;
+    }
+    div.innerHTML = `<label style="margin:0">${p.label} (${p.unita})${p.note ? `<br><small class="hint">${p.note}</small>` : ""}` +
+      (daLegge10 ? `<br><small class="hint" style="color:#1c6b3d">Proposto da Legge 10/91 caricata: conferma o correggi.</small>` : "") +
+      `</label>` +
+      `<input type="number" step="0.01" id="param_${p.id}" value="${valore}">`;
     pContainer.appendChild(div);
   });
 
@@ -440,7 +648,7 @@ document.getElementById("btnQuestions").onclick = async () => {
   document.getElementById("step4").style.display = "block";
 };
 
-document.getElementById("btnGenerate").onclick = async () => {
+document.getElementById("btnCalcola").onclick = async () => {
   const answers = {};
   currentQuestions.forEach(q => {
     const checked = document.querySelector(`input[name="${q.id}"]:checked`);
@@ -478,8 +686,54 @@ document.getElementById("btnGenerate").onclick = async () => {
   fd.append("parametri_json", JSON.stringify(parametri));
   fd.append("prezzario_id", document.getElementById("prezzarioSelect").value || "");
 
+  const msgEl = document.getElementById("calcolaMsg");
+  msgEl.textContent = "Calcolo del computo in corso...";
+  msgEl.className = "msg";
+  document.getElementById("step5").style.display = "none";
+  try {
+    const res = await fetch(`${API}/api/calcola-voci`, { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) {
+      msgEl.textContent = (data.messages || [data.error || "Errore durante il calcolo del computo"]).join("\n");
+      msgEl.className = "msg err";
+      return;
+    }
+    currentVoci = data.voci;
+    currentMeta = data.meta;
+    currentConfronto = data.confronto || currentConfronto;
+    currentNotes = data.note_metodologiche || currentNotes;
+    currentValidationMessages = data.validation_messages || currentValidationMessages;
+
+    renderVociTable();
+    msgEl.textContent = `Calcolate ${currentVoci.length} voci, totale € ${fmtEuro(data.totale)}. Verificale qui sotto prima di scaricare.`;
+    msgEl.className = "msg ok";
+    document.getElementById("generateMsg").textContent = "";
+    document.getElementById("step5").style.display = "block";
+    document.getElementById("step5").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    msgEl.textContent = "Errore durante il calcolo del computo: " + e;
+    msgEl.className = "msg err";
+  }
+};
+
+document.getElementById("btnGenerate").onclick = async () => {
+  if (!currentVoci.length) { alert("Non ci sono voci da generare."); return; }
+  // rinumera le voci secondo l'ordine attuale della tabella (dopo eventuali aggiunte/eliminazioni)
+  currentVoci.forEach((v, i) => v.numero = i + 1);
+
+  const fd = new FormData();
+  fd.append("tipo_intervento", (currentMeta && currentMeta.tipo_intervento) || tipoIntervento());
+  fd.append("voci_json", JSON.stringify(currentVoci));
+  fd.append("nome_progetto", (currentMeta && currentMeta.nome_progetto) || document.getElementById("nomeProgetto").value);
+  fd.append("committente", (currentMeta && currentMeta.committente) || document.getElementById("committente").value);
+  fd.append("ubicazione", (currentMeta && currentMeta.ubicazione) || document.getElementById("ubicazione").value);
+  fd.append("prezzario_nome", (currentMeta && currentMeta.prezzario_nome) || "");
+  fd.append("confronto_json", JSON.stringify(currentConfronto));
+  fd.append("note_metodologiche_json", JSON.stringify(currentNotes));
+  fd.append("validation_messages_json", JSON.stringify(currentValidationMessages));
+
   const msgEl = document.getElementById("generateMsg");
-  msgEl.textContent = "Generazione in corso...";
+  msgEl.textContent = "Generazione dei file in corso...";
   msgEl.className = "msg";
   try {
     const res = await fetch(`${API}/api/generate`, { method: "POST", body: fd });
@@ -495,7 +749,7 @@ document.getElementById("btnGenerate").onclick = async () => {
     a.href = url;
     a.download = "computo_metrico_estimativo.zip";
     a.click();
-    msgEl.textContent = "Computo generato e scaricato (contiene Excel completo, elenco prezzi per PriMus e relazione Word).";
+    msgEl.textContent = "Computo generato e scaricato (contiene Excel completo, elenco prezzi per PriMus e relazione Word, con la colonna Commento che hai eventualmente compilato).";
     msgEl.className = "msg ok";
   } catch (e) {
     msgEl.textContent = "Errore: " + e;

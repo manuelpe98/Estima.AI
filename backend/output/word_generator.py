@@ -66,11 +66,16 @@ def build_word(voci: list[ComputoVoce], meta: ProjectMeta, note_metodologiche: l
             row[3].text = f"{c.area_sdp_m2:.2f}" if c.area_sdp_m2 is not None else "-"
         doc.add_paragraph()
 
+    ha_commenti = any(getattr(v, "commento", "") for v in voci)
+    n_cols = 8 if ha_commenti else 7
     doc.add_heading("Elenco voci di computo", level=1)
-    table = doc.add_table(rows=1, cols=7)
+    table = doc.add_table(rows=1, cols=n_cols)
     table.style = "Light Grid Accent 1"
     hdr = table.rows[0].cells
-    for i, h in enumerate(["N.", "Codice", "Categoria", "Descrizione", "U.M.", "Q.tà", "Importo (€)"]):
+    intestazioni = ["N.", "Codice", "Categoria", "Descrizione", "U.M.", "Q.tà", "Importo (€)"]
+    if ha_commenti:
+        intestazioni.append("Commento")
+    for i, h in enumerate(intestazioni):
         hdr[i].text = h
 
     totale = 0.0
@@ -83,6 +88,8 @@ def build_word(voci: list[ComputoVoce], meta: ProjectMeta, note_metodologiche: l
         row[4].text = v.unita_misura
         row[5].text = f"{v.quantita:,.2f}"
         row[6].text = f"{v.importo:,.2f}"
+        if ha_commenti:
+            row[7].text = getattr(v, "commento", "") or ""
         totale += v.importo
 
     doc.add_paragraph()

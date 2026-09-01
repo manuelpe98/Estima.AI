@@ -214,14 +214,61 @@ def extract_rooms(doc: "fitz.Document", scale_denominator: int, plan_page: int =
 
 
 def extract_building_footprint_m2(rooms_polygons: list[Polygon], scale_denominator: int) -> float:
-    """Stima il sedime dell'edificio come inviluppo convesso dell'unione dei
-    vani rilevati. È un'approssimazione (sovrastima per edifici molto
-    articolati, sottostima lo spessore dei muri perimetrali): utile per una
-    stima preliminare del volume di scavo, da verificare per sagome complesse."""
+    """Stima il sedime dell'edificio come unione (non inviluppo convesso) dei
+    vani rilevati. È un'approssimazione per difetto (esclude corridoi/
+    disimpegni non taggati e lo spessore dei muri perimetrali): utile per una
+    stima preliminare del volume di scavo, da verificare sempre nel passaggio
+    di revisione — specialmente se l'edificio comprende corpi separati (es.
+    autorimessa staccata dal corpo principale).
+
+    NOTA: qui si usa deliberatamente l'inviluppo convesso NON l'unione
+    (era il comportamento precedente): con corpi di fabbrica separati
+    l'inviluppo convesso include anche l'area vuota di terreno tra i corpi,
+    producendo stime enormemente sovrastimate (es. casa + autorimessa
+    staccata di ~780 m² di vani rilevati -> 2149 m² di sedime convesso,
+    contro i ~628 m² dell'unione reale)."""
     if not rooms_polygons:
         return 0.0
-    union = unary_union(rooms_polygons).convex_hull
+    union = unary_union(rooms_polygons)
     return sqpt_to_m2(union.area, scale_denominator)
+
+
+def detect_shared_room_polygons(rooms: list[RoomQuantity], room_polys: list[Polygon]) -> list[str]:
+    """Rileva vani diversi a cui è stata associata la STESSA area disegnata
+    (stesso poligono, superficie identica): capita tipicamente per ambienti a
+    pianta aperta senza parete divisoria (es. cucina/soggiorno), dove il
+    rilievo topologico non ha modo di sapere dove tracciare il confine tra i
+    due vani. Ritorna un avviso testuale per ciascun gruppo trovato, da
+    mostrare nel passaggio di revisione perché l'utente possa dividere
+    manualmente la superficie tra i vani coinvolti."""
+    notes: list[str] = []
+    seen: list[tuple[list[int], Polygon]] = []
+    for i, poly in enumerate(room_polys):
+        matched = False
+        for group, ref_poly in seen:
+            if poly.equals(ref_poly) or (
+                ref_poly.area > 0
+                and abs(poly.area - ref_poly.area) / ref_poly.area < 0.001
+                and poly.symmetric_difference(ref_poly).area / ref_poly.area < 0.02
+            ):
+                group.append(i)
+                matched = True
+                break
+        if not matched:
+            seen.append(([i], poly))
+    for group, ref_poly in seen:
+        if len(group) < 2:
+            continue
+        labels = ", ".join(f"'{rooms[i].label}'" for i in group)
+        area_m2 = rooms[group[0]].area_m2
+        notes.append(
+            f"ATTENZIONE: i vani {labels} risultano associati alla STESSA area disegnata "
+            f"({area_m2} m² ciascuno, identica): probabilmente si tratta di un ambiente a "
+            f"pianta aperta senza parete divisoria che il rilievo automatico non può separare. "
+            f"Dividi manualmente la superficie tra i vani coinvolti nella tabella di revisione "
+            f"prima di procedere."
+        )
+    return notes
 
 
 def rooms_with_polygons(doc: "fitz.Document", scale_denominator: int, plan_page: int = 0

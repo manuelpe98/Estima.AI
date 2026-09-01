@@ -68,6 +68,11 @@ class ComputoVoce:
     quantita: float
     prezzo_unitario: float
     note: str = ""
+    # Commento libero dell'utente in fase di revisione (prima della generazione
+    # dei file finali), es. per segnalare una correzione da fare o il motivo di
+    # una modifica manuale a quantità/prezzo: distinto da 'note', che sono le
+    # note metodologiche generate automaticamente dal sistema.
+    commento: str = ""
 
     @property
     def importo(self) -> float:

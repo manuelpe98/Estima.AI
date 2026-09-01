@@ -12,7 +12,7 @@ THIN = Side(style="thin", color="BFBFBF")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
 COLUMNS = ["N.", "Codice", "Categoria", "Descrizione", "U.M.", "Quantità",
-           "Prezzo unitario (€)", "Importo (€)", "Note"]
+           "Prezzo unitario (€)", "Importo (€)", "Note", "Commento"]
 
 
 def build_excel(voci: list[ComputoVoce], meta: ProjectMeta, out_path: str) -> str:
@@ -39,11 +39,11 @@ def build_excel(voci: list[ComputoVoce], meta: ProjectMeta, out_path: str) -> st
     totale = 0.0
     for v in voci:
         values = [v.numero, v.codice, v.categoria, v.descrizione, v.unita_misura,
-                  v.quantita, v.prezzo_unitario, v.importo, v.note]
+                  v.quantita, v.prezzo_unitario, v.importo, v.note, getattr(v, "commento", "")]
         for col_idx, val in enumerate(values, start=1):
             cell = ws.cell(row=row, column=col_idx, value=val)
             cell.border = BORDER
-            cell.alignment = Alignment(vertical="top", wrap_text=(col_idx in (4, 9)))
+            cell.alignment = Alignment(vertical="top", wrap_text=(col_idx in (4, 9, 10)))
             if col_idx in (6, 7, 8):
                 cell.number_format = "#,##0.00"
         totale += v.importo
@@ -54,7 +54,7 @@ def build_excel(voci: list[ComputoVoce], meta: ProjectMeta, out_path: str) -> st
     tot_cell.font = Font(bold=True)
     tot_cell.number_format = "#,##0.00"
 
-    widths = [5, 12, 18, 48, 8, 11, 16, 14, 40]
+    widths = [5, 12, 18, 48, 8, 11, 16, 14, 40, 30]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 

@@ -141,11 +141,13 @@ def build_computo(
     if footprint_area_m2 > 0:
         volume_scavo = footprint_area_m2 * profondita_scavo
         add(_find_voce(voci, "scavi", "standard"), volume_scavo,
-            f"Sedime edificio {round(footprint_area_m2,1)} m² (inviluppo dei vani rilevati) "
+            f"Sedime edificio {round(footprint_area_m2,1)} m² (somma dei vani rilevati in pianta) "
             f"x profondità {profondita_scavo} m")
         note.append(
-            "Il sedime dell'edificio è stimato come inviluppo convesso dei vani rilevati in pianta: "
-            "per edifici con pianta molto articolata questo sovrastima l'area di scavo reale e va verificato."
+            "Il sedime dell'edificio è stimato come somma delle aree dei vani rilevati in pianta: non include "
+            "corridoi/disimpegni non taggati né lo spessore dei muri perimetrali (sottostima), e non tiene conto "
+            "di scavi per opere accessorie non rappresentate a pianta (es. piscina, muri di contenimento, "
+            "rampe/scale esterne): il volume di scavo va sempre verificato e corretto per queste voci."
         )
 
     # --- Strutture in elevazione ---

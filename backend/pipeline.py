@@ -25,7 +25,7 @@ from .models import ValidationResult, ProjectMeta, RoomComparison, RoomQuantity,
 from .pdf_validation import validate_pdf, find_scale_on_page
 from .geometry_engine import (
     rooms_with_polygons, extract_openings, extract_tagged_elements,
-    extract_building_footprint_m2, ROOM_LABEL_HINTS,
+    extract_building_footprint_m2, detect_shared_room_polygons, ROOM_LABEL_HINTS,
 )
 from .capitolato_engine import missing_questions
 from .parametri_engine import merge_parametri
@@ -166,6 +166,14 @@ def extract_quantities(
     roof_area = _extract_roof_area(list(zip(rooms, room_polys)))
     doc.close()
 
+    if rooms:
+        result.note_metodologiche.append(
+            f"Il sedime edificio ({round(footprint, 2)} m², usato per lo scavo) è stimato come somma delle aree "
+            "dei vani rilevati: NON include corridoi/disimpegni non taggati né lo spessore dei muri perimetrali, "
+            "quindi è una stima per difetto — verifica e correggi il valore nel campo 'Sedime edificio' prima di "
+            "procedere, specialmente se l'edificio comprende corpi separati (es. autorimessa staccata dalla casa)."
+        )
+
     if not rooms:
         result.note_metodologiche.append(
             "ATTENZIONE: nessun vano è stato riconosciuto sulla prima pagina del documento di progetto, quindi "
@@ -177,6 +185,8 @@ def extract_quantities(
             f"({', '.join(ROOM_LABEL_HINTS[:8])}, …); (3) i vani non sono disegnati come poligoni chiusi "
             "nel file vettoriale esportato. Puoi comunque aggiungere i vani a mano nel passaggio di verifica."
         )
+    else:
+        result.note_metodologiche.extend(detect_shared_room_polygons(rooms, room_polys))
 
     # --- Copertura dedicata, se caricata separatamente ---
     if pdf_copertura_path and v_copertura and v_copertura.is_valid:
@@ -223,7 +233,7 @@ def extract_quantities(
     return result
 
 
-def build_from_quantities(
+def compute_voci(
     tipo_intervento: str,
     meta: ProjectMeta,
     answers: dict[str, str],
@@ -239,13 +249,14 @@ def build_from_quantities(
     validation_messages: list[str],
     db_path: str,
     prezzario_id: int | None,
-    excel_out: str,
-    primus_out: str,
-    word_out: str,
     capitolato_text: str | None = None,
 ) -> PipelineResult:
     """Da vani/aperture/elementi (rilevati automaticamente e/o corretti
-    dall'utente nel passaggio di verifica) ai file finali del computo."""
+    dall'utente nel passaggio di verifica) alle righe di computo VALORIZZATE,
+    SENZA generare ancora i file finali: serve a mostrare il computo
+    all'utente in un passaggio di revisione (dove può correggere quantità/
+    prezzi e aggiungere un commento per riga) prima di scaricarlo, con
+    `build_files_from_voci`."""
     result = PipelineResult()
     meta.tipo_intervento = tipo_intervento
     parametri = merge_parametri(parametri_overrides)
@@ -271,10 +282,6 @@ def build_from_quantities(
     # di build_computo: le mettiamo per prime, così restano in evidenza.
     tutte_le_note = list(note_metodologiche) + note
 
-    build_excel(righe, meta, excel_out)
-    build_primus_export(righe, meta, primus_out)
-    build_word(righe, meta, tutte_le_note, validation_messages, word_out, confronto=confronto)
-
     result.rooms = rooms
     result.openings = openings
     result.structural_elements = structural_elements
@@ -284,10 +291,85 @@ def build_from_quantities(
     result.questions_asked = questions
     result.voci = righe
     result.note_metodologiche = tutte_le_note
+    result.validations = {}
+    result.totale = round(sum(v.importo for v in righe), 2)
+    return result
+
+
+def build_files_from_voci(
+    voci: list,
+    meta: ProjectMeta,
+    note_metodologiche: list[str],
+    validation_messages: list[str],
+    confronto: list[RoomComparison],
+    excel_out: str,
+    primus_out: str,
+    word_out: str,
+) -> PipelineResult:
+    """Genera i file finali (Excel, PriMus, Word) direttamente da una lista di
+    righe di computo GIÀ CALCOLATA (da `compute_voci`, eventualmente corretta
+    a mano dall'utente nel passaggio di revisione — quantità, prezzi,
+    descrizioni, commenti): non ricalcola nulla dai vani/aperture originali,
+    così le correzioni dell'utente sono quelle che finiscono nei file."""
+    build_excel(voci, meta, excel_out)
+    build_primus_export(voci, meta, primus_out)
+    build_word(voci, meta, note_metodologiche, validation_messages, word_out, confronto=confronto)
+
+    result = PipelineResult()
+    result.voci = voci
+    result.note_metodologiche = note_metodologiche
+    result.confronto = confronto
     result.excel_path = excel_out
     result.primus_path = primus_out
     result.word_path = word_out
-    result.totale = round(sum(v.importo for v in righe), 2)
+    result.totale = round(sum(v.importo for v in voci), 2)
+    return result
+
+
+def build_from_quantities(
+    tipo_intervento: str,
+    meta: ProjectMeta,
+    answers: dict[str, str],
+    parametri_overrides: dict[str, float],
+    rooms: list[RoomQuantity],
+    openings: list[OpeningQuantity],
+    structural_elements: list[TaggedElement],
+    footprint_area_m2: float,
+    roof_area_m2: float,
+    rooms_sdf: list[RoomQuantity] | None,
+    confronto: list[RoomComparison],
+    note_metodologiche: list[str],
+    validation_messages: list[str],
+    db_path: str,
+    prezzario_id: int | None,
+    excel_out: str,
+    primus_out: str,
+    word_out: str,
+    capitolato_text: str | None = None,
+) -> PipelineResult:
+    """Da vani/aperture/elementi ai file finali del computo, in un solo passo
+    (calcola le voci e genera subito i file, senza passaggio di revisione
+    intermedio): comodo per i test e per chi non ha bisogno di rivedere/
+    commentare le voci prima di scaricare. Equivalente a chiamare in sequenza
+    `compute_voci` e `build_files_from_voci`."""
+    computed = compute_voci(
+        tipo_intervento=tipo_intervento, meta=meta, answers=answers,
+        parametri_overrides=parametri_overrides, rooms=rooms, openings=openings,
+        structural_elements=structural_elements, footprint_area_m2=footprint_area_m2,
+        roof_area_m2=roof_area_m2, rooms_sdf=rooms_sdf, confronto=confronto,
+        note_metodologiche=note_metodologiche, validation_messages=validation_messages,
+        db_path=db_path, prezzario_id=prezzario_id, capitolato_text=capitolato_text,
+    )
+    final = build_files_from_voci(
+        voci=computed.voci, meta=meta, note_metodologiche=computed.note_metodologiche,
+        validation_messages=validation_messages, confronto=confronto,
+        excel_out=excel_out, primus_out=primus_out, word_out=word_out,
+    )
+    result = computed
+    result.excel_path = final.excel_path
+    result.primus_path = final.primus_path
+    result.word_path = final.word_path
+    result.totale = final.totale
     return result
 
 

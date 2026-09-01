@@ -22,17 +22,22 @@ from dataclasses import asdict
 from pathlib import Path
 
 import fitz
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .models import ProjectMeta, RoomQuantity, OpeningQuantity, TaggedElement, RoomComparison
-from .pipeline import validate_only, questions_for_project, extract_quantities, build_from_quantities
+from .models import ProjectMeta, RoomQuantity, OpeningQuantity, TaggedElement, RoomComparison, ComputoVoce
+from .pipeline import (
+    validate_only, questions_for_project, extract_quantities, build_from_quantities,
+    compute_voci, build_files_from_voci,
+)
 from .prezzario import db as prezzario_db
 from .intake import required_documents, TIPI_INTERVENTO
 from .parametri_engine import PARAMETRI
+from .legge10_engine import extract_stratigrafie_reference
+from .ai_assistant import interpreta_istruzione, AiAssistantError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -175,6 +180,7 @@ async def api_estrai_vani(
     file_stato_di_fatto: list[UploadFile] = File(default=[]),
     file_strutturale: list[UploadFile] = File(default=[]),
     file_copertura: list[UploadFile] = File(default=[]),
+    file_legge10: list[UploadFile] = File(default=[]),
     legend_page: int = Form(1),
     structural_legend_page: int = Form(1),
 ):
@@ -192,6 +198,7 @@ async def api_estrai_vani(
     sdf_paths = [_save_upload(f) for f in file_stato_di_fatto if f.filename]
     strut_paths = [_save_upload(f) for f in file_strutturale if f.filename]
     cop_paths = [_save_upload(f) for f in file_copertura if f.filename]
+    legge10_paths = [_save_upload(f) for f in file_legge10 if f.filename]
 
     if not progetto_paths:
         return JSONResponse(status_code=422, content={
@@ -218,6 +225,8 @@ async def api_estrai_vani(
             "messages": extraction.errors + extraction.validation_messages,
         })
 
+    legge10 = extract_stratigrafie_reference(legge10_paths) if legge10_paths else None
+
     return {
         "rooms": [asdict(r) for r in extraction.rooms],
         "openings": [asdict(o) for o in extraction.openings],
@@ -228,11 +237,12 @@ async def api_estrai_vani(
         "confronto": [asdict(c) for c in extraction.confronto],
         "note_metodologiche": extraction.note_metodologiche,
         "validation_messages": extraction.validation_messages,
+        "legge10": legge10,
     }
 
 
-@app.post("/api/generate")
-async def api_generate(
+@app.post("/api/calcola-voci")
+async def api_calcola_voci(
     tipo_intervento: str = Form(...),
     rooms_json: str = Form("[]"),
     openings_json: str = Form("[]"),
@@ -252,8 +262,11 @@ async def api_generate(
     prezzario_id: int | None = Form(None),
 ):
     """Seconda fase: dai vani/aperture/elementi (rilevati da /api/estrai-vani
-    ed eventualmente corretti dall'utente nella pagina di verifica) al
-    computo finale (Excel, PriMus, Word). Non serve ricaricare i PDF."""
+    ed eventualmente corretti dall'utente nella pagina di verifica) alle righe
+    di computo VALORIZZATE (prezzo x quantità), SENZA ancora generare i file
+    finali. Restituisce le voci in JSON perché l'utente le riveda — e le
+    corregga o commenti riga per riga — nel browser, prima di scaricare i
+    file definitivi con /api/generate."""
     if tipo_intervento not in TIPI_INTERVENTO:
         raise HTTPException(400, f"tipo_intervento deve essere uno tra {TIPI_INTERVENTO}")
 
@@ -277,18 +290,74 @@ async def api_generate(
     validation_messages = json.loads(validation_messages_json)
     meta = ProjectMeta(nome_progetto=nome_progetto, committente=committente, ubicazione=ubicazione)
 
-    job_id = uuid.uuid4().hex
-    excel_out = str(OUTPUT_DIR / f"{job_id}_computo.xlsx")
-    primus_out = str(OUTPUT_DIR / f"{job_id}_elenco_prezzi_primus.xlsx")
-    word_out = str(OUTPUT_DIR / f"{job_id}_computo.docx")
-
-    result = build_from_quantities(
+    result = compute_voci(
         tipo_intervento=tipo_intervento, meta=meta, answers=answers, parametri_overrides=parametri_overrides,
         rooms=rooms, openings=openings, structural_elements=structural_elements,
         footprint_area_m2=footprint_area_m2, roof_area_m2=roof_area_m2,
         rooms_sdf=(rooms_sdf_list or None), confronto=confronto,
         note_metodologiche=note_metodologiche, validation_messages=validation_messages,
         db_path=DB_PATH, prezzario_id=prezzario_id, capitolato_text=capitolato_text,
+    )
+
+    return {
+        "voci": [asdict(v) for v in result.voci],
+        "totale": result.totale,
+        "note_metodologiche": result.note_metodologiche,
+        "validation_messages": validation_messages,
+        "confronto": [asdict(c) for c in result.confronto],
+        "meta": {
+            "nome_progetto": meta.nome_progetto,
+            "committente": meta.committente,
+            "ubicazione": meta.ubicazione,
+            "prezzario_nome": meta.prezzario_nome,
+            "tipo_intervento": tipo_intervento,
+        },
+    }
+
+
+@app.post("/api/generate")
+async def api_generate(
+    tipo_intervento: str = Form(...),
+    voci_json: str = Form(...),
+    nome_progetto: str = Form("Progetto senza nome"),
+    committente: str = Form(""),
+    ubicazione: str = Form(""),
+    prezzario_nome: str = Form("Prezzario di esempio (placeholder, non ufficiale)"),
+    confronto_json: str = Form("[]"),
+    note_metodologiche_json: str = Form("[]"),
+    validation_messages_json: str = Form("[]"),
+):
+    """Terza fase: dalle righe di computo calcolate da /api/calcola-voci ed
+    EVENTUALMENTE corrette/commentate a mano dall'utente nel browser, ai file
+    finali (Excel, PriMus, Word). Non ricalcola nulla: usa esattamente le
+    righe ricevute, così le correzioni dell'utente sono quelle che finiscono
+    nei file scaricati."""
+    if tipo_intervento not in TIPI_INTERVENTO:
+        raise HTTPException(400, f"tipo_intervento deve essere uno tra {TIPI_INTERVENTO}")
+
+    try:
+        voci = [ComputoVoce(**v) for v in json.loads(voci_json)]
+        confronto = [RoomComparison(**c) for c in json.loads(confronto_json)]
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, f"Dati del computo non validi: {exc}")
+
+    if not voci:
+        return JSONResponse(status_code=422, content={
+            "error": "Il computo non contiene nessuna voce da generare: torna al passaggio precedente."})
+
+    note_metodologiche = json.loads(note_metodologiche_json)
+    validation_messages = json.loads(validation_messages_json)
+    meta = ProjectMeta(nome_progetto=nome_progetto, committente=committente, ubicazione=ubicazione,
+                        prezzario_nome=prezzario_nome, tipo_intervento=tipo_intervento)
+
+    job_id = uuid.uuid4().hex
+    excel_out = str(OUTPUT_DIR / f"{job_id}_computo.xlsx")
+    primus_out = str(OUTPUT_DIR / f"{job_id}_elenco_prezzi_primus.xlsx")
+    word_out = str(OUTPUT_DIR / f"{job_id}_computo.docx")
+
+    build_files_from_voci(
+        voci=voci, meta=meta, note_metodologiche=note_metodologiche,
+        validation_messages=validation_messages, confronto=confronto,
         excel_out=excel_out, primus_out=primus_out, word_out=word_out,
     )
 
@@ -300,6 +369,29 @@ async def api_generate(
 
     return FileResponse(zip_path, media_type="application/zip",
                          filename="computo_metrico_estimativo.zip")
+
+
+@app.post("/api/interpreta-commento")
+async def api_interpreta_commento(payload: dict = Body(...)):
+    """Interpreta un'istruzione scritta liberamente dall'utente nella colonna
+    "Commento" di una riga di computo (nel passaggio di revisione, prima del
+    download) e restituisce come applicarla: modifica dei valori della riga,
+    eliminazione della riga, oppure nessuna modifica con una spiegazione.
+    Non tocca né il file né le altre righe: il frontend applica il risultato
+    solo alla riga da cui è partita l'istruzione.
+
+    Corpo atteso: {"voce": {...campi della riga...}, "istruzione": "testo"}.
+    Richiede ANTHROPIC_API_KEY configurata sul server: se assente risponde
+    503 con un messaggio chiaro invece di applicare una modifica finta."""
+    voce = payload.get("voce") or {}
+    istruzione = (payload.get("istruzione") or "").strip()
+    if not istruzione:
+        raise HTTPException(400, "Istruzione vuota.")
+    try:
+        risultato = interpreta_istruzione(voce, istruzione)
+    except AiAssistantError as exc:
+        return JSONResponse(status_code=503, content={"error": str(exc)})
+    return risultato
 
 
 @app.get("/api/health")

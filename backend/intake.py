@@ -34,6 +34,9 @@ def required_documents(tipo_intervento: str) -> list[RequiredDocument]:
                               "Necessarie per profondità di fondazione e altezze di piano strutturali"),
             RequiredDocument("relazione_capitolato", "Relazione tecnica / capitolato", False,
                               "Se assente, il sistema chiede materiali e finiture con un questionario"),
+            RequiredDocument("relazione_legge10", "Relazione tecnica ex Legge 10/91 (o D.Lgs 192/2005 e s.m.i.)", False,
+                              "Contiene le stratigrafie di murature, solai e copertura: usata come riferimento "
+                              "per gli spessori da inserire nel computo, se presenti in modo riconoscibile"),
             RequiredDocument("modello_3d", "Modello 3D (se esistente)", False,
                               "Non ancora usato per il calcolo in questa versione, utile come riferimento"),
         ]
@@ -50,5 +53,8 @@ def required_documents(tipo_intervento: str) -> list[RequiredDocument]:
         RequiredDocument("sezioni_strutturali", "Sezioni strutturali quotate (se previste modifiche strutturali)", False),
         RequiredDocument("relazione_capitolato", "Relazione tecnica / capitolato", False,
                           "Se assente, il sistema chiede materiali e finiture con un questionario"),
+        RequiredDocument("relazione_legge10", "Relazione tecnica ex Legge 10/91 (o D.Lgs 192/2005 e s.m.i.)", False,
+                          "Contiene le stratigrafie di murature, solai e copertura: usata come riferimento "
+                          "per gli spessori da inserire nel computo, se presenti in modo riconoscibile"),
         RequiredDocument("modello_3d", "Modello 3D (se esistente)", False),
     ]
