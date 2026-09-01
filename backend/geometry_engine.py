@@ -344,8 +344,26 @@ def merge_shared_rooms(rooms: list[RoomQuantity], room_polys: list[Polygon]
     return merged_rooms, merged_polys, notes
 
 
-def extract_piscina(rooms: list[RoomQuantity], room_polys: list[Polygon]
-                     ) -> tuple[RoomQuantity | None, list[RoomQuantity], list[Polygon]]:
+def _min_rect_dims_m(poly: Polygon, scale_denominator: int) -> tuple[float, float]:
+    """Lunghezza e larghezza (lunghezza >= larghezza) del rettangolo minimo
+    che contiene il poligono, in metri. Usato per la piscina: quasi sempre di
+    forma rettangolare, "8.00 x 4.00 m" si legge e si verifica molto più
+    facilmente di un solo valore di perimetro."""
+    try:
+        rect = poly.minimum_rotated_rectangle
+        coords = list(rect.exterior.coords)
+    except Exception:
+        return 0.0, 0.0
+    if len(coords) < 3:
+        return 0.0, 0.0
+    lato1_pt = Point(coords[0]).distance(Point(coords[1]))
+    lato2_pt = Point(coords[1]).distance(Point(coords[2]))
+    lati_m = sorted([pt_to_m(lato1_pt, scale_denominator), pt_to_m(lato2_pt, scale_denominator)], reverse=True)
+    return round(lati_m[0], 2), round(lati_m[1], 2)
+
+
+def extract_piscina(rooms: list[RoomQuantity], room_polys: list[Polygon], scale_denominator: int
+                     ) -> tuple[RoomQuantity | None, list[RoomQuantity], list[Polygon], float, float]:
     """Se una piscina è indicata in pianta (etichetta 'PISCINA'), la separa
     dall'elenco dei vani normali: non deve contribuire a pavimenti/pareti/
     impianti dei locali interni, ma va computata a parte (scavo, vasca,
@@ -353,15 +371,20 @@ def extract_piscina(rooms: list[RoomQuantity], room_polys: list[Polygon]
     MIN_PISCINA_AREA_M2 è più probabilmente il locale tecnico/filtrazione
     ('locale piscina') e resta un vano normale. Se ci sono più etichette
     'PISCINA' plausibili (es. ripetuta in punti diversi del disegno), si
-    prende la più grande come vasca e le altre restano vani normali."""
+    prende la più grande come vasca e le altre restano vani normali.
+
+    Oltre al vano piscina, ritorna anche lunghezza e larghezza (m) del
+    rettangolo minimo che contiene la vasca: più leggibili del perimetro per
+    chi rivede il computo (richiesta esplicita di Franco)."""
     candidate_idx = [i for i, r in enumerate(rooms)
                       if "PISCINA" in r.label.upper() and r.area_m2 >= MIN_PISCINA_AREA_M2]
     if not candidate_idx:
-        return None, rooms, room_polys
+        return None, rooms, room_polys, 0.0, 0.0
     best_idx = max(candidate_idx, key=lambda i: rooms[i].area_m2)
     piscina = rooms[best_idx]
+    lunghezza_m, larghezza_m = _min_rect_dims_m(room_polys[best_idx], scale_denominator)
     altri_idx = [i for i in range(len(rooms)) if i != best_idx]
-    return piscina, [rooms[i] for i in altri_idx], [room_polys[i] for i in altri_idx]
+    return piscina, [rooms[i] for i in altri_idx], [room_polys[i] for i in altri_idx], lunghezza_m, larghezza_m
 
 
 def rooms_with_polygons(doc: "fitz.Document", scale_denominator: int, plan_page: int = 0

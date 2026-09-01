@@ -96,6 +96,13 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
   dichiarati come riferimento e, se riconoscibili, proporli nei parametri dimensionali del passaggio 5. Se il PDF
   è una scansione senza testo selezionabile non può essere letta automaticamente.</small>
 
+  <label>Relazione acustica (facoltativa: requisiti acustici passivi/impatto acustico)</label>
+  <input type="file" id="fileAcustica" accept="application/pdf" multiple />
+  <small class="hint">Non è un elaborato in scala: viene letta come testo per segnalarti i materiali/lavorazioni
+  acustiche tipiche eventualmente citati (es. pannelli fonoisolanti, materassini anticalpestio), che potrai
+  scegliere di aggiungere come voce al computo nel passaggio successivo. Se il PDF è una scansione senza testo
+  selezionabile non può essere letta automaticamente.</small>
+
   <button id="btnValidate">Verifica elaborati ed estrai vani</button>
   <div id="validateMsg"></div>
   <small class="hint">Ogni singolo PDF caricato deve essere vettoriale, riportare la scala (es. "SCALA 1:100") ed
@@ -117,6 +124,19 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
     <details style="margin-top:.4rem">
       <summary>Mostra i passaggi del documento individuati (<span id="legge10Count">0</span>)</summary>
       <div id="legge10Testo" class="note-box" style="max-height:260px; overflow-y:auto"></div>
+    </details>
+  </div>
+
+  <div id="acusticaPanel" style="display:none">
+    <h3>Relazione acustica — materiali individuati</h3>
+    <small class="hint">Materiali/lavorazioni acustiche tipiche citati nel documento caricato: seleziona quelli
+    da aggiungere al computo come voce segnaposto (quantità e prezzo sempre da completare a mano, non deducibili
+    da un testo descrittivo). Deseleziona quelli non pertinenti a questo progetto.</small>
+    <div id="acusticaNotes"></div>
+    <div id="acusticaMateriali"></div>
+    <details style="margin-top:.4rem">
+      <summary>Mostra i passaggi del documento individuati (<span id="acusticaCount">0</span>)</summary>
+      <div id="acusticaTesto" class="note-box" style="max-height:260px; overflow-y:auto"></div>
     </details>
   </div>
 
@@ -150,8 +170,13 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
   <input type="number" step="0.01" id="roofArea" value="0">
   <label>Superficie piscina (m², specchio d'acqua — 0 se non individuata in pianta)</label>
   <input type="number" step="0.01" id="piscinaArea" value="0">
-  <label>Perimetro piscina (m)</label>
-  <input type="number" step="0.01" id="piscinaPerimetro" value="0">
+  <label>Dimensioni piscina (m) — lunghezza x larghezza del rettangolo minimo che la contiene</label>
+  <div style="display:flex; gap:.5rem; align-items:center">
+    <input type="number" step="0.01" id="piscinaLunghezza" value="0" style="max-width:120px">
+    <span>x</span>
+    <input type="number" step="0.01" id="piscinaLarghezza" value="0" style="max-width:120px">
+    <span>(m)</span>
+  </div>
 
   <button id="btnConfirmVani">Conferma vani e procedi</button>
 </section>
@@ -234,6 +259,7 @@ let currentConfronto = [];
 let currentNotes = [];
 let currentValidationMessages = [];
 let currentLegge10 = null;
+let currentAcustica = null;
 let currentVoci = [];
 let currentMeta = null;
 
@@ -459,6 +485,7 @@ document.getElementById("btnValidate").onclick = async () => {
   const strutturale = Array.from(document.getElementById("fileStrutturale").files);
   const copertura = Array.from(document.getElementById("fileCopertura").files);
   const legge10 = Array.from(document.getElementById("fileLegge10").files);
+  const acustica = Array.from(document.getElementById("fileAcustica").files);
 
   const toValidate = [];
   progetto.forEach((f, i) => toValidate.push([`progetto ${i + 1}/${progetto.length}: ${f.name}`, f]));
@@ -499,6 +526,7 @@ document.getElementById("btnValidate").onclick = async () => {
   strutturale.forEach(f => fd2.append("file_strutturale", f));
   copertura.forEach(f => fd2.append("file_copertura", f));
   legge10.forEach(f => fd2.append("file_legge10", f));
+  acustica.forEach(f => fd2.append("file_acustica", f));
   fd2.append("legend_page", document.getElementById("legendPage").value || "1");
   fd2.append("structural_legend_page", document.getElementById("structuralLegendPage").value || "1");
 
@@ -518,6 +546,7 @@ document.getElementById("btnValidate").onclick = async () => {
     currentNotes = data2.note_metodologiche || [];
     currentValidationMessages = data2.validation_messages || [];
     currentLegge10 = data2.legge10 || null;
+    currentAcustica = data2.acustica || null;
 
     renderRoomsTable();
     renderOpeningsTable();
@@ -526,7 +555,8 @@ document.getElementById("btnValidate").onclick = async () => {
     document.getElementById("perimetroEsterno").value = data2.perimetro_esterno_m || 0;
     document.getElementById("roofArea").value = data2.roof_area_m2 || 0;
     document.getElementById("piscinaArea").value = data2.piscina_area_m2 || 0;
-    document.getElementById("piscinaPerimetro").value = data2.piscina_perimetro_m || 0;
+    document.getElementById("piscinaLunghezza").value = data2.piscina_lunghezza_m || 0;
+    document.getElementById("piscinaLarghezza").value = data2.piscina_larghezza_m || 0;
     const notesEl = document.getElementById("extractNotes");
     notesEl.innerHTML = currentNotes.map(n => {
       const esc = n.replace(/</g, "&lt;");
@@ -552,6 +582,28 @@ document.getElementById("btnValidate").onclick = async () => {
       document.getElementById("legge10Testo").textContent = blocchi.join("\n\n---\n\n") || "Nessun passaggio trovato.";
     } else {
       l10Panel.style.display = "none";
+    }
+
+    const acuPanel = document.getElementById("acusticaPanel");
+    if (currentAcustica) {
+      acuPanel.style.display = "block";
+      const acuNotes = document.getElementById("acusticaNotes");
+      acuNotes.innerHTML = (currentAcustica.note || []).map(n =>
+        `<div class="note-box note-box-warn">${n.replace(/</g,'&lt;')}</div>`).join("");
+      const materiali = currentAcustica.materiali_rilevati || [];
+      const matEl = document.getElementById("acusticaMateriali");
+      matEl.innerHTML = materiali.map((m, i) =>
+        `<label style="display:block; font-weight:normal; margin:.3rem 0">
+           <input type="checkbox" class="acustica-materiale-check" data-materiale="${m.materiale.replace(/"/g,'&quot;')}" checked>
+           <strong>${m.materiale}</strong>
+           ${m.contesto ? `<br><small class="hint" style="margin-left:1.4rem">"${m.contesto.replace(/</g,'&lt;')}"</small>` : ""}
+         </label>`
+      ).join("") || "<p><small class=\"hint\">Nessun materiale acustico tipico riconosciuto automaticamente.</small></p>";
+      const blocchiAcu = currentAcustica.testo_riferimento || [];
+      document.getElementById("acusticaCount").textContent = blocchiAcu.length;
+      document.getElementById("acusticaTesto").textContent = blocchiAcu.join("\n\n---\n\n") || "Nessun passaggio trovato.";
+    } else {
+      acuPanel.style.display = "none";
     }
 
     msgEl.textContent = report.join("\n") + `\n\nEstratti ${currentRooms.length} vani, ${currentOpenings.length} aperture, ${currentStruct.length} elementi strutturali.`;
@@ -692,8 +744,12 @@ document.getElementById("btnCalcola").onclick = async () => {
   fd.append("footprint_area_m2", document.getElementById("footprintArea").value || "0");
   fd.append("perimetro_esterno_m", document.getElementById("perimetroEsterno").value || "0");
   fd.append("roof_area_m2", document.getElementById("roofArea").value || "0");
+  const piscinaLunghezza = parseFloat(document.getElementById("piscinaLunghezza").value) || 0;
+  const piscinaLarghezza = parseFloat(document.getElementById("piscinaLarghezza").value) || 0;
   fd.append("piscina_area_m2", document.getElementById("piscinaArea").value || "0");
-  fd.append("piscina_perimetro_m", document.getElementById("piscinaPerimetro").value || "0");
+  fd.append("piscina_lunghezza_m", String(piscinaLunghezza));
+  fd.append("piscina_larghezza_m", String(piscinaLarghezza));
+  fd.append("piscina_perimetro_m", String(2 * (piscinaLunghezza + piscinaLarghezza)));
   fd.append("rooms_sdf_json", JSON.stringify(currentRoomsSdf));
   fd.append("confronto_json", JSON.stringify(currentConfronto));
   fd.append("note_metodologiche_json", JSON.stringify(currentNotes));
@@ -706,6 +762,9 @@ document.getElementById("btnCalcola").onclick = async () => {
   fd.append("answers_json", JSON.stringify(answers));
   fd.append("parametri_json", JSON.stringify(parametri));
   fd.append("prezzario_id", document.getElementById("prezzarioSelect").value || "");
+  const acusticaSelezionati = Array.from(document.querySelectorAll(".acustica-materiale-check:checked"))
+    .map(el => el.dataset.materiale);
+  fd.append("acustica_materiali_json", JSON.stringify(acusticaSelezionati));
 
   const msgEl = document.getElementById("calcolaMsg");
   msgEl.textContent = "Calcolo del computo in corso...";

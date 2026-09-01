@@ -185,6 +185,35 @@ PLACEHOLDER_VOCI = [
      "recinzione perimetrale dell'area con accessi carrai e pedonali, aree di stoccaggio dei materiali, "
      "mantenimento in efficienza per l'intera durata dei lavori e sgombero/pulizia finale a opere ultimate. "
      "Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.", "corpo", 1.00),
+    ("cantiere", "bagno_chimico", "PLC-CNT-02",
+     "Nolo di bagno chimico da cantiere per l'intera durata del cantiere, compreso la regolare pulizia dello "
+     "stesso con cadenza non minore che settimanale. Compreso ogni onere necessario per dare la lavorazione "
+     "eseguita a regola d'arte.", "corpo", 1.00),
+
+    # Assistenza muraria — separata per tipo (come nel computo di riferimento): posa
+    # serramenti/porte (derivata dal conteggio aperture già rilevato) ed elettricista/
+    # idraulico (a corpo, percentuale indicativa, come impianti_a_corpo).
+    ("assistenza_muraria", "serramenti", "PLC-ASM-01",
+     "Assistenza muraria per la posa in opera dei serramenti esterni (falsi telai, riquadrature perimetrali, "
+     "fissaggio delle zanche e rasatura di raccordo con la muratura/cartongesso adiacente), per ciascun "
+     "serramento rilevato in pianta. Compreso ogni onere necessario per dare la lavorazione eseguita a regola "
+     "d'arte.", "m2", 25.00),
+    ("assistenza_muraria", "porte", "PLC-ASM-02",
+     "Assistenza muraria per la posa in opera delle porte interne (falsi telai o controtelai a scomparsa, "
+     "riquadrature perimetrali e fissaggio con la muratura/cartongesso adiacente), per ciascuna porta "
+     "rilevata in pianta — porte con lavorazioni particolari (es. porta di ingresso, porte tagliafuoco, "
+     "portoni basculanti) vanno eventualmente scorporate a parte con una voce dedicata a prezzo maggiorato. "
+     "Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.", "cad", 45.00),
+    ("assistenza_muraria", "elettrico", "PLC-ASM-ELE-01",
+     "Assistenza muraria per la formazione dell'impianto elettrico, dei corpi illuminanti e dell'eventuale "
+     "impianto antintrusione (tracce, fori, passaggi, alloggiamenti delle scatole e dei quadri ed i "
+     "successivi ripristini) — stima a corpo, percentuale indicativa del totale delle altre lavorazioni. "
+     "Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.", "%", 0.00),
+    ("assistenza_muraria", "idraulico", "PLC-ASM-IDR-01",
+     "Assistenza muraria per la realizzazione dell'impianto idrico-sanitario e di climatizzazione (tracce, "
+     "fori, passaggi delle tubazioni, alloggiamenti delle unità ed i successivi ripristini) — stima a corpo, "
+     "percentuale indicativa del totale delle altre lavorazioni. Compreso ogni onere necessario per dare la "
+     "lavorazione eseguita a regola d'arte.", "%", 0.00),
 
     # Solai — pacchetto completo "a corpo" (laterocemento/predalles: usato di default,
     # struttura+soletta in un'unica voce) oppure scomposto in casseforme/calcestruzzo/
@@ -243,6 +272,23 @@ PLACEHOLDER_VOCI = [
      "rasatura dei giunti e le assistenze — posizioni e sviluppo lineare da definire in base al progetto: "
      "quantità e prezzo da completare manualmente. Compreso ogni onere necessario per dare la lavorazione "
      "eseguita a regola d'arte.", "ml", 0.00),
+    ("controsoffitti", "standard", "PLC-CTS-01",
+     "Formazione di controsoffitti in lastre di cartongesso su orditura metallica zincata, compreso l'impiego "
+     "di trabattelli, le assistenze, la stuccatura e rasatura a due mani in corrispondenza dei giunti e la "
+     "pulizia finale con allontanamento dei materiali di risulta — l'estensione reale (quali ambienti hanno "
+     "un'altezza interna ridotta rispetto agli altri, e di quanto) va verificata dalle quote riportate in "
+     "pianta/sezioni, non riconosciute automaticamente in questa versione: la quantità qui proposta è "
+     "un'ipotesi sull'intera superficie dei vani, da correggere. Compreso ogni onere necessario per dare la "
+     "lavorazione eseguita a regola d'arte.", "m2", 42.00),
+
+    # Materiale segnalato dalla relazione acustica caricata (vedi acustica_engine.py):
+    # il testo della relazione indica un prodotto/materiale acustico pertinente, ma
+    # quantità e prezzo non sono desumibili dal solo testo — voce sempre segnaposto.
+    ("acustica", "materiale_generico", "PLC-ACU-01",
+     "Materiale o lavorazione per requisiti acustici individuato nella relazione acustica caricata — quantità "
+     "e prezzo da completare manualmente in base al materiale/prodotto specifico indicato nella relazione "
+     "(vedi nota di riga per il riferimento). Compreso ogni onere necessario per dare la lavorazione eseguita "
+     "a regola d'arte.", "corpo", 0.00),
 
     # Cappotto termico esterno (prezzo al m2 di parete, a spessore standard: correggere se lo spessore reale "
     # differisce sensibilmente da quello indicato nei parametri)
@@ -290,6 +336,12 @@ PLACEHOLDER_VOCI = [
      "Pavimentazioni esterne, marciapiedi e sistemazioni del sedime (solarium, vialetti, scivoli) — non "
      "quantificate in modo affidabile dalla sola pianta architettonica: quantità e prezzo da completare "
      "manualmente", "m2", 0.00),
+    ("opere_esterne", "camerette_ispezione", "PLC-OPE-04",
+     "Fornitura e posa in opera di camerette di ispezione in calcestruzzo prefabbricato per il raccordo delle "
+     "reti dei sottoservizi, complete di soletta e chiusino, compreso lo scavo, il rinfianco ed il reinterro. "
+     "Compreso ogni onere necessario per dare la fornitura eseguita a regola d'arte. Non rappresentata nella "
+     "pianta di progetto caricata: quantità e prezzo da completare manualmente in base alla planimetria "
+     "generale/rete sottoservizi", "n.", 0.00),
 
     # Impianti (elettrico + idrico-sanitario + termico/climatizzazione insieme, a corpo, come percentuale
     # indicativa del resto del computo — l'importo è calcolato dalla pipeline, non da quantità x prezzo unitario)

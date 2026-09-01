@@ -66,6 +66,17 @@ PARAMETRI: list[ParametroNumerico] = [
                        "(kg per m³ di calcestruzzo)", 90.0, "kg/m3",
                        "Usata solo se il solaio è indicato come 'soletta piena in cemento armato'; valore "
                        "parametrico tipico per un computo estimativo preliminare"),
+    ParametroNumerico("costo_nolo_bagno_chimico_eur", "Costo del nolo bagno chimico da cantiere (a corpo, "
+                       "per l'intera durata dei lavori)", 900.0, "€",
+                       "Dipende dalla durata del cantiere: valore parametrico indicativo, da correggere"),
+    ParametroNumerico("incidenza_assistenza_elettrico_pct", "Incidenza assistenza muraria per l'impianto "
+                       "elettrico sul totale delle altre lavorazioni", 2.0, "%",
+                       "Costo del solo aiuto muratore (tracce, fori, ripristini), distinto dall'impianto "
+                       "elettrico stesso — stima a corpo come percentuale indicativa, da confermare"),
+    ParametroNumerico("incidenza_assistenza_idraulico_pct", "Incidenza assistenza muraria per l'impianto "
+                       "idrico-sanitario/climatizzazione sul totale delle altre lavorazioni", 2.0, "%",
+                       "Costo del solo aiuto muratore (tracce, fori, ripristini), distinto dall'impianto "
+                       "idrico-sanitario stesso — stima a corpo come percentuale indicativa, da confermare"),
 ]
 
 

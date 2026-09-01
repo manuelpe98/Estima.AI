@@ -71,6 +71,8 @@ class ExtractionResult:
     perimetro_esterno_m: float = 0.0
     piscina_area_m2: float = 0.0
     piscina_perimetro_m: float = 0.0
+    piscina_lunghezza_m: float = 0.0
+    piscina_larghezza_m: float = 0.0
     roof_area_m2: float = 0.0
     rooms_sdf: list[RoomQuantity] | None = None
     confronto: list[RoomComparison] = field(default_factory=list)
@@ -96,6 +98,8 @@ class PipelineResult:
     perimetro_esterno_m: float = 0.0
     piscina_area_m2: float = 0.0
     piscina_perimetro_m: float = 0.0
+    piscina_lunghezza_m: float = 0.0
+    piscina_larghezza_m: float = 0.0
     roof_area_m2: float = 0.0
     confronto: list = field(default_factory=list)
     questions_asked: list = field(default_factory=list)
@@ -193,11 +197,14 @@ def extract_quantities(
     lp = legend_page if (legend_page is not None and legend_page < doc.page_count) else None
     rooms, room_polys = rooms_with_polygons(doc, scale_pagina_piano, plan_page=0)
     rooms, room_polys, merge_notes = merge_shared_rooms(rooms, room_polys)
-    piscina, rooms, room_polys = extract_piscina(rooms, room_polys)
+    piscina, rooms, room_polys, piscina_lunghezza_m, piscina_larghezza_m = extract_piscina(
+        rooms, room_polys, scale_pagina_piano)
     if piscina:
+        dim_txt = (f"{piscina_lunghezza_m:.2f} x {piscina_larghezza_m:.2f} (m)"
+                   if piscina_lunghezza_m > 0 else f"perimetro {piscina.perimeter_m} m")
         result.note_metodologiche.append(
-            f"È stata individuata una piscina in pianta (etichetta 'PISCINA', {piscina.area_m2} m², perimetro "
-            f"{piscina.perimeter_m} m): esclusa dai vani normali (non contribuisce a pavimenti/pareti interne/"
+            f"È stata individuata una piscina in pianta (etichetta 'PISCINA', {piscina.area_m2} m², "
+            f"dimensioni {dim_txt}): esclusa dai vani normali (non contribuisce a pavimenti/pareti interne/"
             "impianti a corpo per locale) e computata a parte (scavo, vasca, impermeabilizzazione, bordo) con "
             "profondità e larghezza del bordo parametriche — da confermare nei parametri dimensionali, la "
             "pianta non riporta la profondità della vasca."
@@ -296,6 +303,8 @@ def extract_quantities(
     result.perimetro_esterno_m = round(perimetro_esterno, 2)
     result.piscina_area_m2 = round(piscina.area_m2, 2) if piscina else 0.0
     result.piscina_perimetro_m = round(piscina.perimeter_m, 2) if piscina else 0.0
+    result.piscina_lunghezza_m = piscina_lunghezza_m if piscina else 0.0
+    result.piscina_larghezza_m = piscina_larghezza_m if piscina else 0.0
     result.roof_area_m2 = round(roof_area, 2)
     result.rooms_sdf = rooms_sdf
     result.confronto = confronto
@@ -322,6 +331,9 @@ def compute_voci(
     perimetro_esterno_m: float = 0.0,
     piscina_area_m2: float = 0.0,
     piscina_perimetro_m: float = 0.0,
+    piscina_lunghezza_m: float = 0.0,
+    piscina_larghezza_m: float = 0.0,
+    acustica_materiali: list[str] | None = None,
 ) -> PipelineResult:
     """Da vani/aperture/elementi (rilevati automaticamente e/o corretti
     dall'utente nel passaggio di verifica) alle righe di computo VALORIZZATE,
@@ -350,6 +362,8 @@ def compute_voci(
         roof_area_m2_plan=roof_area_m2, rooms_sdf=rooms_sdf,
         perimetro_esterno_m=perimetro_esterno_m,
         piscina_area_m2=piscina_area_m2, piscina_perimetro_m=piscina_perimetro_m,
+        piscina_lunghezza_m=piscina_lunghezza_m, piscina_larghezza_m=piscina_larghezza_m,
+        acustica_materiali=acustica_materiali,
     )
     # le note raccolte durante l'estrazione (es. avviso "nessun vano riconosciuto",
     # scale diverse su pagine diverse) vanno CONSERVATE, non sostituite da quelle
@@ -363,6 +377,8 @@ def compute_voci(
     result.perimetro_esterno_m = round(perimetro_esterno_m, 2)
     result.piscina_area_m2 = round(piscina_area_m2, 2)
     result.piscina_perimetro_m = round(piscina_perimetro_m, 2)
+    result.piscina_lunghezza_m = piscina_lunghezza_m
+    result.piscina_larghezza_m = piscina_larghezza_m
     result.roof_area_m2 = round(roof_area_m2, 2)
     result.confronto = confronto
     result.questions_asked = questions
@@ -426,6 +442,9 @@ def build_from_quantities(
     perimetro_esterno_m: float = 0.0,
     piscina_area_m2: float = 0.0,
     piscina_perimetro_m: float = 0.0,
+    piscina_lunghezza_m: float = 0.0,
+    piscina_larghezza_m: float = 0.0,
+    acustica_materiali: list[str] | None = None,
 ) -> PipelineResult:
     """Da vani/aperture/elementi ai file finali del computo, in un solo passo
     (calcola le voci e genera subito i file, senza passaggio di revisione
@@ -441,6 +460,8 @@ def build_from_quantities(
         db_path=db_path, prezzario_id=prezzario_id, capitolato_text=capitolato_text,
         perimetro_esterno_m=perimetro_esterno_m,
         piscina_area_m2=piscina_area_m2, piscina_perimetro_m=piscina_perimetro_m,
+        piscina_lunghezza_m=piscina_lunghezza_m, piscina_larghezza_m=piscina_larghezza_m,
+        acustica_materiali=acustica_materiali,
     )
     final = build_files_from_voci(
         voci=computed.voci, meta=meta, note_metodologiche=computed.note_metodologiche,
@@ -472,6 +493,7 @@ def run_pipeline(
     excel_out: str = "computo.xlsx",
     primus_out: str = "elenco_prezzi_primus.xlsx",
     word_out: str = "computo.docx",
+    acustica_materiali: list[str] | None = None,
 ) -> PipelineResult:
     """Esegue estrazione e generazione in un solo passaggio (senza il
     passaggio di verifica intermedio): usata dai test e da chi non ha
@@ -502,4 +524,6 @@ def run_pipeline(
         capitolato_text=capitolato_text,
         perimetro_esterno_m=extraction.perimetro_esterno_m,
         piscina_area_m2=extraction.piscina_area_m2, piscina_perimetro_m=extraction.piscina_perimetro_m,
+        piscina_lunghezza_m=extraction.piscina_lunghezza_m, piscina_larghezza_m=extraction.piscina_larghezza_m,
+        acustica_materiali=acustica_materiali,
     )

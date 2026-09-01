@@ -37,6 +37,7 @@ from .prezzario import db as prezzario_db
 from .intake import required_documents, TIPI_INTERVENTO
 from .parametri_engine import PARAMETRI
 from .legge10_engine import extract_stratigrafie_reference
+from .acustica_engine import extract_acustica_reference
 from .ai_assistant import interpreta_istruzione, AiAssistantError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -181,6 +182,7 @@ async def api_estrai_vani(
     file_strutturale: list[UploadFile] = File(default=[]),
     file_copertura: list[UploadFile] = File(default=[]),
     file_legge10: list[UploadFile] = File(default=[]),
+    file_acustica: list[UploadFile] = File(default=[]),
     legend_page: int = Form(1),
     structural_legend_page: int = Form(1),
 ):
@@ -199,6 +201,7 @@ async def api_estrai_vani(
     strut_paths = [_save_upload(f) for f in file_strutturale if f.filename]
     cop_paths = [_save_upload(f) for f in file_copertura if f.filename]
     legge10_paths = [_save_upload(f) for f in file_legge10 if f.filename]
+    acustica_paths = [_save_upload(f) for f in file_acustica if f.filename]
 
     if not progetto_paths:
         return JSONResponse(status_code=422, content={
@@ -226,6 +229,7 @@ async def api_estrai_vani(
         })
 
     legge10 = extract_stratigrafie_reference(legge10_paths) if legge10_paths else None
+    acustica = extract_acustica_reference(acustica_paths) if acustica_paths else None
 
     return {
         "rooms": [asdict(r) for r in extraction.rooms],
@@ -235,12 +239,15 @@ async def api_estrai_vani(
         "perimetro_esterno_m": extraction.perimetro_esterno_m,
         "piscina_area_m2": extraction.piscina_area_m2,
         "piscina_perimetro_m": extraction.piscina_perimetro_m,
+        "piscina_lunghezza_m": extraction.piscina_lunghezza_m,
+        "piscina_larghezza_m": extraction.piscina_larghezza_m,
         "roof_area_m2": extraction.roof_area_m2,
         "rooms_sdf": [asdict(r) for r in extraction.rooms_sdf] if extraction.rooms_sdf else [],
         "confronto": [asdict(c) for c in extraction.confronto],
         "note_metodologiche": extraction.note_metodologiche,
         "validation_messages": extraction.validation_messages,
         "legge10": legge10,
+        "acustica": acustica,
     }
 
 
@@ -254,6 +261,8 @@ async def api_calcola_voci(
     perimetro_esterno_m: float = Form(0.0),
     piscina_area_m2: float = Form(0.0),
     piscina_perimetro_m: float = Form(0.0),
+    piscina_lunghezza_m: float = Form(0.0),
+    piscina_larghezza_m: float = Form(0.0),
     roof_area_m2: float = Form(0.0),
     rooms_sdf_json: str = Form("[]"),
     confronto_json: str = Form("[]"),
@@ -266,6 +275,7 @@ async def api_calcola_voci(
     answers_json: str = Form("{}"),
     parametri_json: str = Form("{}"),
     prezzario_id: int | None = Form(None),
+    acustica_materiali_json: str = Form("[]"),
 ):
     """Seconda fase: dai vani/aperture/elementi (rilevati da /api/estrai-vani
     ed eventualmente corretti dall'utente nella pagina di verifica) alle righe
@@ -294,6 +304,10 @@ async def api_calcola_voci(
     parametri_overrides = json.loads(parametri_json)
     note_metodologiche = json.loads(note_metodologiche_json)
     validation_messages = json.loads(validation_messages_json)
+    try:
+        acustica_materiali = [str(m) for m in json.loads(acustica_materiali_json)]
+    except (TypeError, ValueError):
+        acustica_materiali = []
     meta = ProjectMeta(nome_progetto=nome_progetto, committente=committente, ubicazione=ubicazione)
 
     result = compute_voci(
@@ -305,6 +319,8 @@ async def api_calcola_voci(
         db_path=DB_PATH, prezzario_id=prezzario_id, capitolato_text=capitolato_text,
         perimetro_esterno_m=perimetro_esterno_m,
         piscina_area_m2=piscina_area_m2, piscina_perimetro_m=piscina_perimetro_m,
+        piscina_lunghezza_m=piscina_lunghezza_m, piscina_larghezza_m=piscina_larghezza_m,
+        acustica_materiali=acustica_materiali,
     )
 
     return {

@@ -24,6 +24,7 @@ CATEGORY_KEYWORDS = {
     "richiede_contropareti": ["controparete", "contropareti"],
     "vespaio_aerato": ["vespaio"],
     "velette": ["veletta", "velette", "gola luminosa"],
+    "controsoffitti": ["controsoffitt", "contro soffitt"],
 }
 
 QUESTIONS: list[CapitolatoQuestion] = [
@@ -108,6 +109,13 @@ QUESTIONS: list[CapitolatoQuestion] = [
         id="velette", categoria="Velette",
         testo="Sono previste velette in cartongesso (es. per la chiusura di soglie finestre, per il "
               "passaggio di tende o per l'alloggiamento di illuminazione indiretta)?",
+        opzioni=["Sì", "No"],
+    ),
+    CapitolatoQuestion(
+        id="controsoffitti", categoria="Controsoffitti",
+        testo="Sono previsti controsoffitti in cartongesso? (Il sistema non riconosce automaticamente in "
+              "quali ambienti: se rispondi sì, la quantità proposta copre l'intera superficie dei vani e va "
+              "corretta a mano per gli ambienti effettivamente interessati)",
         opzioni=["Sì", "No"],
     ),
 ]

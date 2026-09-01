@@ -35,6 +35,9 @@ CATEGORIA_LABELS = {
     "contropareti": "Contropareti interne",
     "pareti_divisorie": "Pareti divisorie interne",
     "velette": "Velette",
+    "assistenza_muraria": "Assistenza muraria",
+    "controsoffitti": "Controsoffitti",
+    "acustica": "Materiali per requisiti acustici",
 }
 
 
@@ -73,6 +76,9 @@ def build_computo(
     perimetro_esterno_m: float = 0.0,
     piscina_area_m2: float = 0.0,
     piscina_perimetro_m: float = 0.0,
+    piscina_lunghezza_m: float = 0.0,
+    piscina_larghezza_m: float = 0.0,
+    acustica_materiali: list[str] | None = None,
 ) -> tuple[list[ComputoVoce], list[str]]:
     righe: list[ComputoVoce] = []
     note: list[str] = []
@@ -116,6 +122,7 @@ def build_computo(
     contropareti_si = answers.get("richiede_contropareti", "No") == "Sì"
     vespaio_si = answers.get("vespaio_aerato", "No") == "Sì"
     velette_si = answers.get("velette", "No") == "Sì"
+    controsoffitti_si = answers.get("controsoffitti", "No") == "Sì"
 
     altezza_interna = parametri.get("altezza_interna_m", 2.70)
     altezza_interpiano = parametri.get("altezza_interpiano_strutturale_m", 3.00)
@@ -135,6 +142,9 @@ def build_computo(
     fattore_casseratura_fnd = parametri.get("fattore_casseratura_fondazioni", 2.0)
     incidenza_acciaio_fnd = parametri.get("incidenza_acciaio_fondazioni_kg_m3", 80.0)
     incidenza_acciaio_sol = parametri.get("incidenza_acciaio_solaio_kg_m3", 90.0)
+    costo_bagno_chimico = parametri.get("costo_nolo_bagno_chimico_eur", 900.0)
+    incidenza_assistenza_ele = parametri.get("incidenza_assistenza_elettrico_pct", 2.0)
+    incidenza_assistenza_idr = parametri.get("incidenza_assistenza_idraulico_pct", 2.0)
 
     # --- Finiture (pavimenti, pareti, serramenti, porte) ---
     tot_area_pav = sum(r.area_m2 for r in rooms)
@@ -187,6 +197,26 @@ def build_computo(
                          "Richieste dal capitolato ma non misurabili dalla sola pianta (posizione e sviluppo "
                          "lineare dipendono dal progetto di dettaglio): misura e valorizza a mano")
 
+    # --- Controsoffitti (solo se richiesti dal capitolato): il sistema non legge le
+    # quote di altezza interna riportate in pianta/sezioni (formati troppo vari da
+    # disegno a disegno per un riconoscimento affidabile in questa versione), quindi
+    # NON sa distinguere automaticamente quali ambienti hanno un'altezza ridotta da
+    # controsoffitto: propone l'intera superficie dei vani, da correggere a mano
+    # per i soli ambienti effettivamente interessati. ---
+    if controsoffitti_si and tot_area_pav > 0:
+        add(_find_voce(voci, "controsoffitti", "standard"), tot_area_pav,
+            f"Ipotesi sull'intera superficie dei vani ({round(tot_area_pav,1)} m²): il sistema non riconosce "
+            "automaticamente quali ambienti hanno altezza interna ridotta da controsoffitto — correggi la "
+            "quantità per i soli ambienti effettivamente interessati")
+        note.append(
+            "La voce controsoffitti è stata generata sull'intera superficie dei vani perché il rilievo "
+            "automatico non legge le quote di altezza interna riportate in pianta/sezioni (per riconoscerle "
+            "servirebbe un formato di annotazione affidabile e coerente su tutti i disegni, che al momento "
+            "non è implementato): se in questo progetto il controsoffitto interessa solo alcuni ambienti "
+            "(es. dove l'altezza interna è inferiore rispetto agli altri locali), correggi la quantità a mano "
+            "nel passaggio di revisione."
+        )
+
     finestre = [o for o in openings if o.kind == "finestra"]
     con_misure = [o for o in finestre if o.width_cm and o.height_cm]
     senza_misure = [o for o in finestre if not (o.width_cm and o.height_cm)]
@@ -207,6 +237,18 @@ def build_computo(
         add(_find_voce_con_dettaglio(voci, "porte_interne", por_tipo, answers, "porte_interne"), sum(o.count for o in porte),
             f"{sum(o.count for o in porte)} porte rilevate da pianta")
 
+    # --- Assistenza muraria per la posa di serramenti e porte (distinta dalla
+    # fornitura e posa dei serramenti/porte stessi, sopra) ---
+    if con_misure:
+        area_assistenza_ser = sum((o.width_cm * o.height_cm / 10000.0) * o.count for o in con_misure)
+        add(_find_voce(voci, "assistenza_muraria", "serramenti"), area_assistenza_ser,
+            f"Stessa superficie dei {sum(o.count for o in con_misure)} serramenti con dimensioni note")
+    if porte:
+        add(_find_voce(voci, "assistenza_muraria", "porte"), sum(o.count for o in porte),
+            f"{sum(o.count for o in porte)} porte rilevate da pianta — eventuali porte con lavorazioni "
+            "particolari (porta di ingresso, porte tagliafuoco, portoni basculanti) vanno scorporate a mano "
+            "con una voce dedicata a prezzo maggiorato")
+
     # --- Impianti: NON un rilievo dettagliato (richiesta esplicita dell'utente: gli
     # impianti restano esclusi dal computo puntuale in questa versione) — vengono
     # sommati in un'UNICA voce a corpo, alla fine, come percentuale indicativa del
@@ -222,6 +264,12 @@ def build_computo(
             v_cantiere["prezzo"] = costo_cantiere
             add(v_cantiere, 1, "Voce a corpo, prezzo dal parametro 'Costo di approntamento del cantiere' "
                                 "(confermato dall'utente)")
+        v_bagno = _find_voce(voci, "cantiere", "bagno_chimico")
+        if v_bagno:
+            v_bagno = dict(v_bagno)
+            v_bagno["prezzo"] = costo_bagno_chimico
+            add(v_bagno, 1, "Voce a corpo, prezzo dal parametro 'Costo del nolo bagno chimico' "
+                             "(confermato dall'utente)")
 
     # --- Scavi ---
     if footprint_area_m2 > 0:
@@ -341,9 +389,11 @@ def build_computo(
             "Stessa superficie bagnata della vasca (fondo + pareti)")
         add(_find_voce(voci, "piscina_bordo", "standard"), piscina_perimetro_m * larghezza_bordo_piscina,
             f"Perimetro piscina ({round(piscina_perimetro_m,1)} m) x larghezza bordo ({larghezza_bordo_piscina} m)")
+        piscina_dim_txt = (f"{piscina_lunghezza_m:.2f} x {piscina_larghezza_m:.2f} (m)"
+                            if piscina_lunghezza_m > 0 else f"perimetro {round(piscina_perimetro_m,1)} m")
         note.append(
             f"È stata individuata una piscina in pianta ({round(piscina_area_m2,1)} m² di specchio d'acqua, "
-            f"perimetro {round(piscina_perimetro_m,1)} m): scavo, vasca, impermeabilizzazione e bordo sono stimati "
+            f"dimensioni {piscina_dim_txt}): scavo, vasca, impermeabilizzazione e bordo sono stimati "
             f"usando una profondità parametrica di {profondita_piscina} m (la pianta non riporta la profondità — "
             "verifica dalle sezioni quotate o dagli esecutivi cementi armati e correggi il parametro se diverso). "
             "L'impianto di filtrazione/trattamento acqua della piscina resta escluso, come gli altri impianti."
@@ -428,12 +478,31 @@ def build_computo(
                          "Non rappresentata nella pianta di progetto: valorizza a mano dalla planimetria generale/rete sottoservizi")
         add_placeholder(_find_voce(voci, "opere_esterne", "pavimentazioni_esterne"),
                          "Non quantificata in modo affidabile dalla sola pianta architettonica: misura e valorizza a mano")
+        add_placeholder(_find_voce(voci, "opere_esterne", "camerette_ispezione"),
+                         "Non rappresentate nella pianta di progetto: conta e valorizza a mano dalla planimetria generale/rete sottoservizi")
         note.append(
-            "Sono state aggiunte 4 voci segnaposto (scala esterna, recinzione, smaltimento acque, pavimentazioni "
-            "esterne) con quantità e prezzo a 0, evidenziate nei file generati: sono opere spesso presenti in un "
-            "progetto reale ma che il rilievo automatico da questa sola pianta non può misurare con affidabilità "
-            "(richiedono la planimetria generale, la rete sottoservizi o le sezioni quotate) — completale a mano "
-            "prima di considerare il computo definitivo, o eliminale se non pertinenti a questo progetto."
+            "Sono state aggiunte 5 voci segnaposto (scala esterna, recinzione, smaltimento acque, pavimentazioni "
+            "esterne, camerette di ispezione) con quantità e prezzo a 0, evidenziate nei file generati: sono opere "
+            "spesso presenti in un progetto reale ma che il rilievo automatico da questa sola pianta non può "
+            "misurare con affidabilità (richiedono la planimetria generale, la rete sottoservizi o le sezioni "
+            "quotate) — completale a mano prima di considerare il computo definitivo, o eliminale se non "
+            "pertinenti a questo progetto."
+        )
+
+    # --- Materiali per requisiti acustici individuati nella relazione acustica
+    # caricata (vedi acustica_engine.py): sempre come voce segnaposto, perché da un
+    # testo descrittivo non si può risalire in modo affidabile a una quantità reale. ---
+    if acustica_materiali:
+        for materiale in acustica_materiali:
+            add_placeholder(_find_voce(voci, "acustica", "materiale_generico"),
+                             f"Individuato nella relazione acustica caricata: {materiale}. Misura e valorizza "
+                             "a mano in base al prodotto/materiale specifico indicato nella relazione")
+        note.append(
+            f"Dalla relazione acustica caricata sono stati individuati {len(acustica_materiali)} riferimenti a "
+            "materiali/lavorazioni per requisiti acustici: sono stati aggiunti come voci segnaposto (quantità e "
+            "prezzo a 0) — un testo descrittivo non permette di risalire in modo affidabile a una quantità "
+            "reale, quindi vanno misurati e prezzati a mano, o eliminati se il materiale non è pertinente a "
+            "questa parte del progetto."
         )
 
     # --- Demolizioni (solo ristrutturazione, confronto con stato di fatto) ---
@@ -477,5 +546,26 @@ def build_computo(
                 "altre lavorazioni. È una stima di massima: va sostituita con un computo impiantistico dedicato "
                 "(schema unifilare, schema idrico, dimensionamento termico) appena disponibile."
             )
+
+    # --- Assistenza muraria per elettricista e idraulico: voci SEPARATE (come nel
+    # computo di riferimento), distinte dalla voce impianti_a_corpo sopra — quella è
+    # il costo dell'impianto in sé, questa è il solo aiuto muratore (tracce, fori,
+    # ripristini). Calcolate sullo stesso subtotale (esclusi impianti/assistenze),
+    # non l'una sull'altra. ---
+    if subtotale_senza_impianti > 0:
+        v_asm_ele = _find_voce(voci, "assistenza_muraria", "elettrico")
+        if v_asm_ele and incidenza_assistenza_ele > 0:
+            v_asm_ele = dict(v_asm_ele)
+            v_asm_ele["prezzo"] = round(subtotale_senza_impianti * incidenza_assistenza_ele / 100.0, 2)
+            add(v_asm_ele, 1,
+                f"Stima a corpo: {incidenza_assistenza_ele:.1f}% del totale delle altre lavorazioni "
+                f"({round(subtotale_senza_impianti,2)} €) — parametro confermato dall'utente")
+        v_asm_idr = _find_voce(voci, "assistenza_muraria", "idraulico")
+        if v_asm_idr and incidenza_assistenza_idr > 0:
+            v_asm_idr = dict(v_asm_idr)
+            v_asm_idr["prezzo"] = round(subtotale_senza_impianti * incidenza_assistenza_idr / 100.0, 2)
+            add(v_asm_idr, 1,
+                f"Stima a corpo: {incidenza_assistenza_idr:.1f}% del totale delle altre lavorazioni "
+                f"({round(subtotale_senza_impianti,2)} €) — parametro confermato dall'utente")
 
     return righe, note
