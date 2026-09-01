@@ -33,6 +33,21 @@ PARAMETRI: list[ParametroNumerico] = [
                        "Valore parametrico tipico per un computo estimativo preliminare"),
     ParametroNumerico("angolo_falda_gradi", "Angolo medio delle falde di copertura", 25.0, "gradi",
                        "0 per copertura piana; usato per correggere la superficie in pianta"),
+    ParametroNumerico("spessore_fondazione_m", "Spessore medio delle fondazioni (platea/travi rovesce)", 0.50, "m",
+                       "Da confermare in base alla relazione strutturale; usato per il volume di fondazioni"),
+    ParametroNumerico("spessore_solaio_cm", "Spessore medio dei solai (interpiano e/o contro terra)", 25.0, "cm",
+                       "Preso dalla Legge 10/91 se disponibile; altrimenti valore parametrico tipico"),
+    ParametroNumerico("spessore_cappotto_cm", "Spessore del cappotto termico esterno", 12.0, "cm",
+                       "Preso dalla Legge 10/91 (spessore parete esterna) se disponibile; altrimenti valore tipico"),
+    ParametroNumerico("incidenza_impianti_pct", "Incidenza impianti (elettrico + idrico-sanitario + "
+                       "termico/climatizzazione) sul totale delle altre lavorazioni", 18.0, "%",
+                       "Gli impianti sono esclusi dal rilievo dettagliato in questa versione e stimati "
+                       "a corpo come percentuale indicativa del resto del computo, da confermare o correggere"),
+    ParametroNumerico("profondita_piscina_m", "Profondità media della piscina", 1.50, "m",
+                       "La pianta non riporta la profondità: usata solo se è stata individuata una piscina in "
+                       "pianta, per lo scavo, la vasca e l'impermeabilizzazione — verifica dalle sezioni/cementi armati"),
+    ParametroNumerico("larghezza_bordo_piscina_m", "Larghezza del bordo perimetrale della piscina", 1.00, "m",
+                       "Usata solo se è stata individuata una piscina in pianta, per la pavimentazione del bordo"),
 ]
 
 

@@ -43,6 +43,8 @@
   .ai-comment-log .log-err { color: #a12626; }
   .ai-comment-log .log-err::before { content: "⚠️ "; }
   .ai-comment-input { font-size: .8rem !important; padding: .3rem !important; }
+  #vociTable tr.voce-da-completare { background: #fff2cc; }
+  #vociTable tr.voce-da-completare input { background: #fffbe8; }
 </style>
 </head>
 <body>
@@ -139,10 +141,17 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
   </table>
   <button type="button" class="secondary small-add" id="btnAddStruct">+ Aggiungi elemento</button>
 
-  <label>Sedime edificio (m², usato per il volume di scavo)</label>
+  <label>Sedime edificio (m², usato per il volume di scavo, fondazioni, solai e impermeabilizzazioni)</label>
   <input type="number" step="0.01" id="footprintArea" value="0">
+  <label>Perimetro esterno edificio (m, contorno dell'involucro — usato solo per il cappotto termico, non per
+  l'intonaco interno)</label>
+  <input type="number" step="0.01" id="perimetroEsterno" value="0">
   <label>Superficie di copertura in pianta (m², prima della correzione per la falda)</label>
   <input type="number" step="0.01" id="roofArea" value="0">
+  <label>Superficie piscina (m², specchio d'acqua — 0 se non individuata in pianta)</label>
+  <input type="number" step="0.01" id="piscinaArea" value="0">
+  <label>Perimetro piscina (m)</label>
+  <input type="number" step="0.01" id="piscinaPerimetro" value="0">
 
   <button id="btnConfirmVani">Conferma vani e procedi</button>
 </section>
@@ -314,8 +323,10 @@ function renderVociTable() {
   currentVoci.forEach((v, i) => {
     const importo = (v.quantita || 0) * (v.prezzo_unitario || 0);
     totale += importo;
+    const daCompletare = !!v.da_completare;
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${i + 1}</td>
+    if (daCompletare) tr.classList.add("voce-da-completare");
+    tr.innerHTML = `<td>${i + 1}${daCompletare ? ' <span title="Da completare a mano: quantità/prezzo non calcolabili da questa pianta">⚠</span>' : ''}</td>
       <td><input type="text" value="${(v.codice||"").replace(/"/g,'&quot;')}" data-f="codice" style="width:90px"></td>
       <td><input type="text" value="${(v.categoria||"").replace(/"/g,'&quot;')}" data-f="categoria" style="width:120px"></td>
       <td><input type="text" value="${(v.descrizione||"").replace(/"/g,'&quot;')}" data-f="descrizione" style="min-width:220px"></td>
@@ -512,7 +523,10 @@ document.getElementById("btnValidate").onclick = async () => {
     renderOpeningsTable();
     renderStructTable();
     document.getElementById("footprintArea").value = data2.footprint_area_m2 || 0;
+    document.getElementById("perimetroEsterno").value = data2.perimetro_esterno_m || 0;
     document.getElementById("roofArea").value = data2.roof_area_m2 || 0;
+    document.getElementById("piscinaArea").value = data2.piscina_area_m2 || 0;
+    document.getElementById("piscinaPerimetro").value = data2.piscina_perimetro_m || 0;
     const notesEl = document.getElementById("extractNotes");
     notesEl.innerHTML = currentNotes.map(n => {
       const esc = n.replace(/</g, "&lt;");
@@ -636,6 +650,10 @@ document.getElementById("btnQuestions").onclick = async () => {
       valore = spessori.parete_esterna;
       daLegge10 = true;
     }
+    if (p.id === "spessore_solaio_cm" && spessori.solaio) {
+      valore = spessori.solaio;
+      daLegge10 = true;
+    }
     div.innerHTML = `<label style="margin:0">${p.label} (${p.unita})${p.note ? `<br><small class="hint">${p.note}</small>` : ""}` +
       (daLegge10 ? `<br><small class="hint" style="color:#1c6b3d">Proposto da Legge 10/91 caricata: conferma o correggi.</small>` : "") +
       `</label>` +
@@ -672,7 +690,10 @@ document.getElementById("btnCalcola").onclick = async () => {
   fd.append("openings_json", JSON.stringify(currentOpenings));
   fd.append("structural_elements_json", JSON.stringify(currentStruct));
   fd.append("footprint_area_m2", document.getElementById("footprintArea").value || "0");
+  fd.append("perimetro_esterno_m", document.getElementById("perimetroEsterno").value || "0");
   fd.append("roof_area_m2", document.getElementById("roofArea").value || "0");
+  fd.append("piscina_area_m2", document.getElementById("piscinaArea").value || "0");
+  fd.append("piscina_perimetro_m", document.getElementById("piscinaPerimetro").value || "0");
   fd.append("rooms_sdf_json", JSON.stringify(currentRoomsSdf));
   fd.append("confronto_json", JSON.stringify(currentConfronto));
   fd.append("note_metodologiche_json", JSON.stringify(currentNotes));

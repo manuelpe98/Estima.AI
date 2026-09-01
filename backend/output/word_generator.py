@@ -4,7 +4,21 @@ from __future__ import annotations
 from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 from ..models import ComputoVoce, ProjectMeta, RoomComparison
+
+# Colore di evidenziazione per le voci "da completare a mano" (stesso giallo
+# usato nel file Excel), applicato allo sfondo delle celle della riga.
+_DA_COMPLETARE_FILL_HEX = "FFF2CC"
+
+
+def _shade_cell(cell, hex_color: str) -> None:
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), hex_color)
+    cell._tc.get_or_add_tcPr().append(shd)
 
 
 def build_word(voci: list[ComputoVoce], meta: ProjectMeta, note_metodologiche: list[str],
@@ -79,18 +93,35 @@ def build_word(voci: list[ComputoVoce], meta: ProjectMeta, note_metodologiche: l
         hdr[i].text = h
 
     totale = 0.0
+    righe_da_completare = 0
     for v in voci:
+        da_completare = getattr(v, "da_completare", False)
         row = table.add_row().cells
         row[0].text = str(v.numero)
         row[1].text = v.codice
         row[2].text = v.categoria
-        row[3].text = v.descrizione
+        descrizione = v.descrizione
+        if da_completare:
+            righe_da_completare += 1
+            descrizione = "⚠ DA COMPLETARE A MANO — " + descrizione
+        row[3].text = descrizione
         row[4].text = v.unita_misura
         row[5].text = f"{v.quantita:,.2f}"
         row[6].text = f"{v.importo:,.2f}"
         if ha_commenti:
             row[7].text = getattr(v, "commento", "") or ""
+        if da_completare:
+            for cell in row:
+                _shade_cell(cell, _DA_COMPLETARE_FILL_HEX)
         totale += v.importo
+
+    if righe_da_completare:
+        legend_p = doc.add_paragraph()
+        legend_run = legend_p.add_run(
+            f"⚠ {righe_da_completare} voce/i evidenziata/e in giallo: da completare a mano "
+            "(quantità/prezzo non calcolabili dagli elaborati caricati)."
+        )
+        legend_run.bold = True
 
     doc.add_paragraph()
     tot_p = doc.add_paragraph()
@@ -101,13 +132,22 @@ def build_word(voci: list[ComputoVoce], meta: ProjectMeta, note_metodologiche: l
     doc.add_heading("Avvertenze", level=1)
     doc.add_paragraph(
         "Il presente computo copre le opere di finitura (pavimenti, pareti interne, serramenti, porte "
-        "interne), le strutture in elevazione, gli scavi di fondazione e la copertura, oltre a una stima "
-        "forfettaria degli impianti elettrico e idrico-sanitario, nei limiti di ciò che è quantificabile "
-        "a partire dagli elaborati caricati e dai parametri confermati dall'utente. Restano fuori da questa "
-        "versione: le opere di fondazione di dettaglio, le casserature, l'impiantistica di dettaglio e, per "
-        "le ristrutturazioni, le demolizioni parziali dei vani con superficie variata (segnalate ma non "
-        "quantificate automaticamente). Il prezzario utilizzato, se non caricato esplicitamente "
-        "dall'utente, è un prezzario di esempio a scopo dimostrativo e non ha valore ufficiale."
+        "interne), le strutture in elevazione, le fondazioni e gli scavi, i solai, la copertura, il "
+        "cappotto termico, le impermeabilizzazioni contro terra, l'eventuale piscina individuata in pianta "
+        "(scavo, vasca, impermeabilizzazione e bordo) e una stima forfettaria degli impianti elettrico e "
+        "idrico-sanitario, nei limiti di ciò che è quantificabile a partire dagli elaborati caricati e dai "
+        "parametri confermati dall'utente. Restano fuori da questa versione, per non rischiare di "
+        "introdurre valori inventati su elementi che richiedono dati di calcolo strutturale (armature, "
+        "classi di calcestruzzo, casseforme per fase costruttiva) non desumibili dalla sola pianta "
+        "architettonica: l'impiantistica di dettaglio, il computo strutturale delle opere in cemento armato "
+        "(armature, classi/copriferro, casseforme) e, per le ristrutturazioni, le demolizioni parziali dei "
+        "vani con superficie variata (segnalate ma non quantificate automaticamente). Alcune voci — opere "
+        "individuate come plausibilmente presenti (es. scala esterna) o tipicamente necessarie ma non "
+        "rappresentate nella pianta caricata (es. recinzione, smaltimento acque, sistemazioni esterne) — "
+        "sono comunque incluse nell'elenco come segnaposto, evidenziate in giallo con quantità e prezzo a "
+        "zero: vanno completate a mano dal tecnico dopo verifica sugli elaborati generali/di dettaglio. Il "
+        "prezzario utilizzato, se non caricato esplicitamente dall'utente, è un prezzario di esempio a "
+        "scopo dimostrativo e non ha valore ufficiale."
     )
 
     doc.save(out_path)

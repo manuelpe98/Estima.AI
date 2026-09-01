@@ -232,6 +232,9 @@ async def api_estrai_vani(
         "openings": [asdict(o) for o in extraction.openings],
         "structural_elements": [asdict(e) for e in extraction.structural_elements],
         "footprint_area_m2": extraction.footprint_area_m2,
+        "perimetro_esterno_m": extraction.perimetro_esterno_m,
+        "piscina_area_m2": extraction.piscina_area_m2,
+        "piscina_perimetro_m": extraction.piscina_perimetro_m,
         "roof_area_m2": extraction.roof_area_m2,
         "rooms_sdf": [asdict(r) for r in extraction.rooms_sdf] if extraction.rooms_sdf else [],
         "confronto": [asdict(c) for c in extraction.confronto],
@@ -248,6 +251,9 @@ async def api_calcola_voci(
     openings_json: str = Form("[]"),
     structural_elements_json: str = Form("[]"),
     footprint_area_m2: float = Form(0.0),
+    perimetro_esterno_m: float = Form(0.0),
+    piscina_area_m2: float = Form(0.0),
+    piscina_perimetro_m: float = Form(0.0),
     roof_area_m2: float = Form(0.0),
     rooms_sdf_json: str = Form("[]"),
     confronto_json: str = Form("[]"),
@@ -297,6 +303,8 @@ async def api_calcola_voci(
         rooms_sdf=(rooms_sdf_list or None), confronto=confronto,
         note_metodologiche=note_metodologiche, validation_messages=validation_messages,
         db_path=DB_PATH, prezzario_id=prezzario_id, capitolato_text=capitolato_text,
+        perimetro_esterno_m=perimetro_esterno_m,
+        piscina_area_m2=piscina_area_m2, piscina_perimetro_m=piscina_perimetro_m,
     )
 
     return {

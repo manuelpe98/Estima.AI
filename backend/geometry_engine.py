@@ -31,6 +31,7 @@ ROOM_LABEL_HINTS = [
     "SOGGIORNO", "CUCINA", "CAMERA", "BAGNO", "STUDIO", "INGRESSO", "RIPOSTIGLIO",
     "CORRIDOIO", "DISIMPEGNO", "TERRAZZO", "BALCONE", "LAVANDERIA", "GARAGE",
     "AUTORIMESSA", "LOCALE TECNICO", "CANTINA", "SALA", "TAVERNA", "COPERTURA", "TETTO",
+    "PISCINA",
 ]
 # Le etichette di vano vengono cercate per intera parola (\b...\b), non come
 # semplice sottostringa: altrimenti hint corti come "STUDIO" combaciano anche
@@ -41,6 +42,24 @@ _ROOM_LABEL_PATTERNS = [re.compile(rf"\b{re.escape(h)}\b") for h in ROOM_LABEL_H
 # testo più lungo che contiene comunque una delle parole chiave (es. una
 # didascalia o un titolo di tavola) non viene considerato un'etichetta di vano.
 _MAX_ROOM_LABEL_LEN = 28
+
+# Etichette per cui "il poligono più piccolo che contiene il punto" NON è il
+# criterio giusto: la falda di un tetto è spesso disegnata con linee interne
+# (colmi/displuvi) che la spezzerebbero in facce più piccole della ricostruzione
+# planare, ma "copertura"/"tetto" indica sempre l'intera falda/il contorno
+# esterno, non una sua sotto-porzione. Per questa etichetta si usa quindi solo
+# il percorso già chiuso nel disegno (o, in mancanza, la faccia planare più
+# GRANDE che contiene il punto, non la più piccola). La piscina invece segue
+# la regola normale (poligono più piccolo): a differenza della falda, il
+# rischio maggiore lì non è una sotto-porzione più piccola (es. gradino di
+# risalita), ma un contorno enorme e sbagliato (es. il riquadro dell'intera
+# vista di disegno), quindi va evitato il MASSIMO, non il minimo.
+ROOF_LABEL_HINTS = ("COPERTURA", "TETTO")
+_LARGEST_POLY_LABEL_HINTS = ROOF_LABEL_HINTS
+# Sotto questa superficie un'etichetta "PISCINA" non è la vasca esterna ma più
+# probabilmente il locale tecnico/filtrazione ("locale piscina"): resta un
+# vano normale, non viene isolata come piscina.
+MIN_PISCINA_AREA_M2 = 10.0
 
 MIN_ROOM_AREA_M2 = 0.8
 MAX_ROOM_AREA_M2 = 400.0
@@ -170,37 +189,50 @@ def _candidates_at_point(polygons: list[Polygon], point: Point, scale_denominato
 
 def _extract_rooms_impl(page: "fitz.Page", scale_denominator: int
                          ) -> tuple[list[RoomQuantity], list[Polygon]]:
-    # Strategia a due livelli: prima si cerca tra i percorsi GIA' chiusi nel
-    # disegno (preciso, funziona per la maggior parte dei disegni, inclusi
-    # quelli con linee interne come i colmi di falda che altrimenti
-    # spezzerebbero un contorno unico in più facce più piccole). Solo se per
-    # una specifica etichetta non si trova nessun candidato plausibile in
-    # questo modo — il caso tipico di export CAD dettagliati dove il vano
-    # non è un unico oggetto chiuso ma lo spazio tra più muri separati — si
-    # ricostruiscono le facce dall'intero reticolo di segmenti, calcolate
-    # una sola volta e riusate per le etichette successive.
+    # Si combinano SEMPRE due fonti di poligoni candidati per ogni etichetta:
+    # (1) i percorsi GIA' chiusi nel disegno (preciso, funziona per la
+    # maggior parte dei disegni), e (2) le facce ricostruite dall'intero
+    # reticolo di segmenti (necessario per gli export CAD dettagliati dove il
+    # vano non è un unico oggetto chiuso ma lo spazio tra più muri separati).
+    # NON basta usare (2) solo quando (1) non trova nulla: su un disegno reale
+    # può capitare che (1) trovi COMUNQUE un candidato — tipicamente il solo
+    # perimetro esterno dell'edificio, se quello è disegnato come un'unica
+    # polilinea chiusa mentre le pareti interne sono segmenti separati — e in
+    # quel caso fermarsi al primo risultato non vuoto assegnerebbe a TUTTI i
+    # vani interni la stessa area (l'intero edificio) invece della loro area
+    # reale. Si prende quindi sempre il poligono più piccolo che contiene
+    # l'etichetta tra ENTRAMBE le fonti insieme (poligoni più grandi che la
+    # contengono sono il perimetro edificio, gruppi di vani, ecc.).
     closed_polys = _all_closed_polygons(page)
+    planar_polys = _planar_faces(page)
     spans = _text_spans(page)
     room_labels = [s for s in spans if _is_room_label(s["text"])]
-
-    planar_polys: list[Polygon] | None = None
 
     rooms: list[RoomQuantity] = []
     room_polys: list[Polygon] = []
     for s in room_labels:
         cx, cy = _bbox_center(s["bbox"])
         point = Point(cx, cy)
-        candidates = _candidates_at_point(closed_polys, point, scale_denominator)
-        if not candidates:
-            if planar_polys is None:
-                planar_polys = _planar_faces(page)
-            candidates = _candidates_at_point(planar_polys, point, scale_denominator)
-        if not candidates:
-            continue
-        # il poligono più piccolo che contiene l'etichetta è il vano stesso
-        # (poligoni più grandi che la contengono sono il perimetro edificio,
-        # gruppi di vani, ecc.)
-        area_m2, best_poly = min(candidates, key=lambda t: t[0])
+        is_largest_poly_label = any(h in s["text"].upper() for h in _LARGEST_POLY_LABEL_HINTS)
+        if is_largest_poly_label:
+            # la falda/vasca va presa per intero: percorso già chiuso se c'è,
+            # altrimenti la faccia planare più GRANDE (il contorno esterno,
+            # non una sotto-porzione tagliata da una linea interna).
+            candidates = _candidates_at_point(closed_polys, point, scale_denominator)
+            if not candidates:
+                candidates = _candidates_at_point(planar_polys, point, scale_denominator)
+            if not candidates:
+                continue
+            area_m2, best_poly = max(candidates, key=lambda t: t[0])
+        else:
+            candidates = (_candidates_at_point(closed_polys, point, scale_denominator)
+                          + _candidates_at_point(planar_polys, point, scale_denominator))
+            if not candidates:
+                continue
+            # il poligono più piccolo che contiene l'etichetta è il vano stesso
+            # (poligoni più grandi che la contengono sono il perimetro edificio,
+            # gruppi di vani, ecc.)
+            area_m2, best_poly = min(candidates, key=lambda t: t[0])
         perim_m = pt_to_m(best_poly.length, scale_denominator)
         rooms.append(RoomQuantity(label=s["text"], area_m2=round(area_m2, 2),
                                    perimeter_m=round(perim_m, 2)))
@@ -221,10 +253,10 @@ def extract_building_footprint_m2(rooms_polygons: list[Polygon], scale_denominat
     di revisione — specialmente se l'edificio comprende corpi separati (es.
     autorimessa staccata dal corpo principale).
 
-    NOTA: qui si usa deliberatamente l'inviluppo convesso NON l'unione
-    (era il comportamento precedente): con corpi di fabbrica separati
-    l'inviluppo convesso include anche l'area vuota di terreno tra i corpi,
-    producendo stime enormemente sovrastimate (es. casa + autorimessa
+    NOTA: qui si usa deliberatamente l'UNIONE dei vani, non l'inviluppo
+    convesso (comportamento precedente, ora corretto): con corpi di fabbrica
+    separati l'inviluppo convesso include anche l'area vuota di terreno tra i
+    corpi, producendo stime enormemente sovrastimate (es. casa + autorimessa
     staccata di ~780 m² di vani rilevati -> 2149 m² di sedime convesso,
     contro i ~628 m² dell'unione reale)."""
     if not rooms_polygons:
@@ -233,42 +265,103 @@ def extract_building_footprint_m2(rooms_polygons: list[Polygon], scale_denominat
     return sqpt_to_m2(union.area, scale_denominator)
 
 
-def detect_shared_room_polygons(rooms: list[RoomQuantity], room_polys: list[Polygon]) -> list[str]:
-    """Rileva vani diversi a cui è stata associata la STESSA area disegnata
-    (stesso poligono, superficie identica): capita tipicamente per ambienti a
-    pianta aperta senza parete divisoria (es. cucina/soggiorno), dove il
-    rilievo topologico non ha modo di sapere dove tracciare il confine tra i
-    due vani. Ritorna un avviso testuale per ciascun gruppo trovato, da
-    mostrare nel passaggio di revisione perché l'utente possa dividere
-    manualmente la superficie tra i vani coinvolti."""
-    notes: list[str] = []
-    seen: list[tuple[list[int], Polygon]] = []
+def extract_building_perimeter_m(rooms_polygons: list[Polygon], scale_denominator: int) -> float:
+    """Perimetro ESTERNO dell'edificio (il contorno dell'involucro, non la
+    somma dei perimetri dei singoli vani): serve per le lavorazioni che
+    riguardano solo le pareti perimetrali (es. cappotto termico esterno), a
+    differenza della somma dei perimetri dei vani — usata per l'intonaco
+    interno — che conta più volte ogni parete divisoria interna (corretto per
+    l'intonaco, che va su entrambe le facce, ma sbagliato per una lavorazione
+    che riguarda solo l'esterno). Si calcola come perimetro del contorno
+    ESTERNO dell'unione dei vani (i fori interni, es. un cortile chiuso, non
+    vengono sommati); se l'edificio ha corpi separati (es. autorimessa
+    staccata) si sommano i perimetri esterni di ciascun corpo."""
+    if not rooms_polygons:
+        return 0.0
+    union = unary_union(rooms_polygons)
+    geoms = list(union.geoms) if hasattr(union, "geoms") else [union]
+    perimetro_pt = sum(g.exterior.length for g in geoms if hasattr(g, "exterior") and g.exterior is not None)
+    return pt_to_m(perimetro_pt, scale_denominator)
+
+
+def _group_shared_room_polygons(room_polys: list[Polygon]) -> list[list[int]]:
+    groups: list[list[int]] = []
     for i, poly in enumerate(room_polys):
-        matched = False
-        for group, ref_poly in seen:
+        matched_group = None
+        for group in groups:
+            ref_poly = room_polys[group[0]]
             if poly.equals(ref_poly) or (
                 ref_poly.area > 0
                 and abs(poly.area - ref_poly.area) / ref_poly.area < 0.001
                 and poly.symmetric_difference(ref_poly).area / ref_poly.area < 0.02
             ):
-                group.append(i)
-                matched = True
+                matched_group = group
                 break
-        if not matched:
-            seen.append(([i], poly))
-    for group, ref_poly in seen:
+        if matched_group is not None:
+            matched_group.append(i)
+        else:
+            groups.append([i])
+    return groups
+
+
+def merge_shared_rooms(rooms: list[RoomQuantity], room_polys: list[Polygon]
+                        ) -> tuple[list[RoomQuantity], list[Polygon], list[str]]:
+    """Vani diversi a cui è stato associato lo STESSO poligono disegnato
+    (superficie identica) vengono uniti in UN'UNICA voce con etichetta
+    combinata (es. 'CUCINA/SOGGIORNO'): è il caso tipico di un ambiente a
+    pianta aperta senza parete divisoria, dove il rilievo topologico non ha
+    modo di sapere dove tracciare un confine perché nel disegno — e nella
+    realtà — quel confine non esiste. Per richiesta esplicita dell'utente
+    questo NON è trattato come un errore da correggere a mano: il computo
+    riporta direttamente la voce unita, con una nota di trasparenza (non un
+    avviso) che spiega l'unione."""
+    notes: list[str] = []
+    groups = _group_shared_room_polygons(room_polys)
+
+    merged_rooms: list[RoomQuantity] = []
+    merged_polys: list[Polygon] = []
+    for group in groups:
         if len(group) < 2:
+            i = group[0]
+            merged_rooms.append(rooms[i])
+            merged_polys.append(room_polys[i])
             continue
-        labels = ", ".join(f"'{rooms[i].label}'" for i in group)
-        area_m2 = rooms[group[0]].area_m2
+        labels_originali = [rooms[i].label.strip().rstrip("/").strip() for i in group]
+        # rimuove eventuali duplicati mantenendo l'ordine di apparizione
+        labels_univoche = list(dict.fromkeys(labels_originali))
+        combined_label = "/".join(labels_univoche)
+        ref = rooms[group[0]]
+        merged_rooms.append(RoomQuantity(
+            label=combined_label, area_m2=ref.area_m2, perimeter_m=ref.perimeter_m,
+            source="rilevata da poligono disegno (ambiente open space, vani uniti)",
+        ))
+        merged_polys.append(room_polys[group[0]])
         notes.append(
-            f"ATTENZIONE: i vani {labels} risultano associati alla STESSA area disegnata "
-            f"({area_m2} m² ciascuno, identica): probabilmente si tratta di un ambiente a "
-            f"pianta aperta senza parete divisoria che il rilievo automatico non può separare. "
-            f"Dividi manualmente la superficie tra i vani coinvolti nella tabella di revisione "
-            f"prima di procedere."
+            f"Vani a pianta aperta uniti in un'unica voce di computo: {', '.join(f'{l!r}' for l in labels_univoche)} "
+            f"condividevano la stessa area disegnata ({ref.area_m2} m², senza parete divisoria), quindi nel computo "
+            f"compaiono come voce unica '{combined_label}' invece che come vani separati."
         )
-    return notes
+    return merged_rooms, merged_polys, notes
+
+
+def extract_piscina(rooms: list[RoomQuantity], room_polys: list[Polygon]
+                     ) -> tuple[RoomQuantity | None, list[RoomQuantity], list[Polygon]]:
+    """Se una piscina è indicata in pianta (etichetta 'PISCINA'), la separa
+    dall'elenco dei vani normali: non deve contribuire a pavimenti/pareti/
+    impianti dei locali interni, ma va computata a parte (scavo, vasca,
+    impermeabilizzazione, bordo). Un'etichetta 'PISCINA' con superficie sotto
+    MIN_PISCINA_AREA_M2 è più probabilmente il locale tecnico/filtrazione
+    ('locale piscina') e resta un vano normale. Se ci sono più etichette
+    'PISCINA' plausibili (es. ripetuta in punti diversi del disegno), si
+    prende la più grande come vasca e le altre restano vani normali."""
+    candidate_idx = [i for i, r in enumerate(rooms)
+                      if "PISCINA" in r.label.upper() and r.area_m2 >= MIN_PISCINA_AREA_M2]
+    if not candidate_idx:
+        return None, rooms, room_polys
+    best_idx = max(candidate_idx, key=lambda i: rooms[i].area_m2)
+    piscina = rooms[best_idx]
+    altri_idx = [i for i in range(len(rooms)) if i != best_idx]
+    return piscina, [rooms[i] for i in altri_idx], [room_polys[i] for i in altri_idx]
 
 
 def rooms_with_polygons(doc: "fitz.Document", scale_denominator: int, plan_page: int = 0
@@ -321,3 +414,87 @@ def extract_openings(doc: "fitz.Document", plan_page: int = 0, legend_page: int 
     elements = extract_tagged_elements(doc, plan_page, legend_page, {"P": "porta", "F": "finestra"})
     return [OpeningQuantity(code=e.code, kind=e.kind, count=e.count,
                              width_cm=e.dim1_cm, height_cm=e.dim2_cm) for e in elements]
+
+
+# --- Rilievo porte/finestre dalle quote di varco (senza sigla + abaco) -----
+#
+# Molti disegni reali NON usano sigle tipo "F1"/"P1" con abaco a parte (il
+# rilievo tramite extract_openings/extract_tagged_elements in quel caso non
+# trova nulla): riportano invece, accanto a ogni varco nel muro, due quote —
+# larghezza in cm e, sotto, altezza in cm seguita da "h" (es. "80" / "210h")
+# — esattamente come le altre quote della pianta. Verificato su un disegno
+# reale (Studio Pè) confrontando visivamente ogni etichetta con il simbolo
+# disegnato: le altezze osservate si dividono nettamente in due gruppi, "210h"
+# e "230h" — sempre affiancate dal simbolo ad arco dell'anta porta — contro
+# "150h" e "250h" — sempre un varco vetrato senza arco — e i valori
+# corrispondono esattamente alle superfici "finestrata" riportate nella
+# tabella dei rapporti aeroilluminanti dello stesso disegno.
+OPENING_WIDTH_RANGE_CM = (50, 700)
+OPENING_HEIGHT_RANGE_CM = (40, 300)
+# Intervallo tipico dell'altezza di un'anta porta (interna, ingresso o
+# carraia): un'altezza di varco fuori da questo intervallo (tipicamente più
+# bassa, con davanzale, o un vetro a tutta altezza) è considerata finestra.
+DOOR_HEIGHT_RANGE_CM = (195, 235)
+_OPENING_HEIGHT_RE = re.compile(r"^(\d{2,4})[Hh]$")
+_OPENING_WIDTH_RE = re.compile(r"^\d{2,4}$")
+_OPENING_MAX_PAIR_DIST_PT = 20.0  # la coppia larghezza/altezza è sempre a pochi punti di distanza
+
+
+def extract_dimensioned_openings(page: "fitz.Page") -> list[OpeningQuantity]:
+    """Rileva porte e finestre dalle quote larghezza/altezza scritte accanto
+    a ogni varco in pianta (vedi nota sopra), senza bisogno di un abaco con
+    sigle. Ogni etichetta larghezza+altezza corrisponde a un varco realmente
+    disegnato: aperture con la stessa larghezza e altezza vengono contate
+    insieme in un'unica voce."""
+    d = page.get_text("dict")
+    height_spans: list[tuple[int, float, float]] = []
+    width_spans: list[tuple[int, float, float]] = []
+    for block in d.get("blocks", []):
+        for line in block.get("lines", []):
+            spans = line.get("spans", [])
+            if not spans:
+                continue
+            joined = "".join(s["text"] for s in spans).strip()
+            x0 = min(s["bbox"][0] for s in spans)
+            y0 = min(s["bbox"][1] for s in spans)
+            x1 = max(s["bbox"][2] for s in spans)
+            y1 = max(s["bbox"][3] for s in spans)
+            cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+            m = _OPENING_HEIGHT_RE.match(joined)
+            if m:
+                val = int(m.group(1))
+                if OPENING_HEIGHT_RANGE_CM[0] <= val <= OPENING_HEIGHT_RANGE_CM[1]:
+                    height_spans.append((val, cx, cy))
+            elif _OPENING_WIDTH_RE.match(joined):
+                val = int(joined)
+                if OPENING_WIDTH_RANGE_CM[0] <= val <= OPENING_WIDTH_RANGE_CM[1]:
+                    width_spans.append((val, cx, cy))
+
+    used_widths: set[int] = set()
+    counts: dict[tuple[str, int, int], int] = {}
+    for h_val, hx, hy in height_spans:
+        best_idx = None
+        best_dist = None
+        for idx, (w_val, wx, wy) in enumerate(width_spans):
+            if idx in used_widths:
+                continue
+            dist = ((wx - hx) ** 2 + (wy - hy) ** 2) ** 0.5
+            if dist <= _OPENING_MAX_PAIR_DIST_PT and (best_dist is None or dist < best_dist):
+                best_dist, best_idx = dist, idx
+        if best_idx is None:
+            continue
+        used_widths.add(best_idx)
+        w_val = width_spans[best_idx][0]
+        kind = "porta" if DOOR_HEIGHT_RANGE_CM[0] <= h_val <= DOOR_HEIGHT_RANGE_CM[1] else "finestra"
+        key = (kind, w_val, h_val)
+        counts[key] = counts.get(key, 0) + 1
+
+    openings: list[OpeningQuantity] = []
+    for (kind, w_val, h_val), count in sorted(counts.items(), key=lambda kv: (kv[0][0], -kv[0][1], -kv[0][2])):
+        prefix = "P" if kind == "porta" else "F"
+        openings.append(OpeningQuantity(
+            code=f"{prefix}-{w_val}x{h_val}", kind=kind, count=count,
+            width_cm=float(w_val), height_cm=float(h_val),
+            source="quote larghezza/altezza lette in pianta (senza abaco)",
+        ))
+    return openings

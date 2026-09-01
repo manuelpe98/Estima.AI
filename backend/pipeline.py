@@ -22,10 +22,11 @@ from dataclasses import dataclass, field
 import fitz
 
 from .models import ValidationResult, ProjectMeta, RoomComparison, RoomQuantity, OpeningQuantity, TaggedElement
-from .pdf_validation import validate_pdf, find_scale_on_page
+from .pdf_validation import validate_pdf, find_scale_on_page, detect_empirical_scale_on_page
 from .geometry_engine import (
-    rooms_with_polygons, extract_openings, extract_tagged_elements,
-    extract_building_footprint_m2, detect_shared_room_polygons, ROOM_LABEL_HINTS,
+    rooms_with_polygons, extract_openings, extract_tagged_elements, extract_dimensioned_openings,
+    extract_building_footprint_m2, extract_building_perimeter_m, merge_shared_rooms, extract_piscina,
+    ROOM_LABEL_HINTS, DOOR_HEIGHT_RANGE_CM,
 )
 from .capitolato_engine import missing_questions
 from .parametri_engine import merge_parametri
@@ -34,6 +35,28 @@ from .prezzario import db as prezzario_db
 from .prezzario.matching import build_computo
 from .output.excel_generator import build_excel, build_primus_export
 from .output.word_generator import build_word
+
+
+def _resolve_scale(doc: "fitz.Document", page_number: int, declared_scale: int | None,
+                    label: str, note_metodologiche: list[str]) -> int:
+    """Determina la scala da usare per convertire le misure di UNA pagina: parte
+    dalla scala dichiarata sulla pagina stessa (o, in mancanza, da quella passata
+    come fallback), ma se le quote effettivamente scritte sul disegno indicano —
+    con un segnale statistico schiacciante e inequivocabile — una scala diversa,
+    usa quella (vedi `detect_empirical_scale_on_page`): capita che il cartiglio
+    riporti la scala di un altro elaborato/riquadro dello stesso foglio."""
+    scale_dichiarata = find_scale_on_page(doc, page_number) or declared_scale or 100
+    if page_number < 0 or page_number >= doc.page_count:
+        return scale_dichiarata
+    scala_quotata, matched = detect_empirical_scale_on_page(doc[page_number])
+    if scala_quotata is not None and scala_quotata != scale_dichiarata:
+        note_metodologiche.append(
+            f"{label}: la scala dichiarata nel cartiglio (1:{scale_dichiarata}) non corrisponde alle quote "
+            f"effettivamente presenti sul disegno ({matched} quote analizzate): è stata usata la scala 1:{scala_quotata}, "
+            "dedotta con certezza dalle misure reali riportate in pianta, più affidabile del solo testo del cartiglio."
+        )
+        return scala_quotata
+    return scale_dichiarata
 
 
 @dataclass
@@ -45,6 +68,9 @@ class ExtractionResult:
     openings: list[OpeningQuantity] = field(default_factory=list)
     structural_elements: list[TaggedElement] = field(default_factory=list)
     footprint_area_m2: float = 0.0
+    perimetro_esterno_m: float = 0.0
+    piscina_area_m2: float = 0.0
+    piscina_perimetro_m: float = 0.0
     roof_area_m2: float = 0.0
     rooms_sdf: list[RoomQuantity] | None = None
     confronto: list[RoomComparison] = field(default_factory=list)
@@ -67,6 +93,9 @@ class PipelineResult:
     openings: list = field(default_factory=list)
     structural_elements: list = field(default_factory=list)
     footprint_area_m2: float = 0.0
+    perimetro_esterno_m: float = 0.0
+    piscina_area_m2: float = 0.0
+    piscina_perimetro_m: float = 0.0
     roof_area_m2: float = 0.0
     confronto: list = field(default_factory=list)
     questions_asked: list = field(default_factory=list)
@@ -152,17 +181,52 @@ def extract_quantities(
     # sulla pagina della pianta (pagina 0) invece della prima trovata nell'intero
     # documento unito: altrimenti il rilievo geometrico userebbe una scala
     # sbagliata e non troverebbe nessun vano plausibile.
-    scale_pagina_piano = find_scale_on_page(doc, 0) or v_progetto.scale_denominator
-    if find_scale_on_page(doc, 0) is not None and scale_pagina_piano != v_progetto.scale_denominator:
+    scale_dichiarata_pagina = find_scale_on_page(doc, 0)
+    scale_pagina_piano = scale_dichiarata_pagina or v_progetto.scale_denominator
+    if scale_dichiarata_pagina is not None and scale_pagina_piano != v_progetto.scale_denominator:
         result.note_metodologiche.append(
             f"Il documento di progetto contiene scale diverse su pagine diverse (probabilmente più elaborati "
             f"uniti insieme): per il rilievo di vani e sedime è stata usata la scala dichiarata sulla prima "
             f"pagina (1:{scale_pagina_piano})."
         )
+    scale_pagina_piano = _resolve_scale(doc, 0, scale_pagina_piano, "Pianta di progetto", result.note_metodologiche)
     lp = legend_page if (legend_page is not None and legend_page < doc.page_count) else None
     rooms, room_polys = rooms_with_polygons(doc, scale_pagina_piano, plan_page=0)
+    rooms, room_polys, merge_notes = merge_shared_rooms(rooms, room_polys)
+    piscina, rooms, room_polys = extract_piscina(rooms, room_polys)
+    if piscina:
+        result.note_metodologiche.append(
+            f"È stata individuata una piscina in pianta (etichetta 'PISCINA', {piscina.area_m2} m², perimetro "
+            f"{piscina.perimeter_m} m): esclusa dai vani normali (non contribuisce a pavimenti/pareti interne/"
+            "impianti a corpo per locale) e computata a parte (scavo, vasca, impermeabilizzazione, bordo) con "
+            "profondità e larghezza del bordo parametriche — da confermare nei parametri dimensionali, la "
+            "pianta non riporta la profondità della vasca."
+        )
     openings = extract_openings(doc, plan_page=0, legend_page=lp)
+    if not openings:
+        # Nessuna sigla + abaco (F1/P1...) trovata: molti disegni reali non la usano.
+        # Si ricava porte/finestre direttamente dalle quote larghezza/altezza scritte
+        # accanto a ogni varco in pianta (vedi extract_dimensioned_openings).
+        openings = extract_dimensioned_openings(doc[0])
+        if openings:
+            n_porte = sum(o.count for o in openings if o.kind == "porta")
+            n_finestre = sum(o.count for o in openings if o.kind == "finestra")
+            result.note_metodologiche.append(
+                f"Porte e finestre: non è stato trovato un abaco con sigle (F1/P1...) sul disegno, quindi sono "
+                f"state rilevate dalle quote larghezza/altezza scritte accanto a ogni varco in pianta "
+                f"({n_porte} porte, {n_finestre} finestre riconosciute, per numero di aperture — non di vani). "
+                "Un'apertura è classificata come finestra se l'altezza del varco è fuori dall'intervallo tipico "
+                f"di un'anta porta ({DOOR_HEIGHT_RANGE_CM[0]}-{DOOR_HEIGHT_RANGE_CM[1]} cm): verifica nel "
+                "passaggio di revisione, specialmente eventuali porte-finestre a tutta altezza."
+            )
+        else:
+            result.note_metodologiche.append(
+                "ATTENZIONE: non sono state trovate né sigle con abaco (F1/P1...) né quote larghezza/altezza "
+                "riconoscibili accanto ai varchi: porte e finestre non sono state rilevate automaticamente. "
+                "Aggiungile a mano nel passaggio di verifica."
+            )
     footprint = extract_building_footprint_m2(room_polys, scale_pagina_piano)
+    perimetro_esterno = extract_building_perimeter_m(room_polys, scale_pagina_piano)
     roof_area = _extract_roof_area(list(zip(rooms, room_polys)))
     doc.close()
 
@@ -186,12 +250,13 @@ def extract_quantities(
             "nel file vettoriale esportato. Puoi comunque aggiungere i vani a mano nel passaggio di verifica."
         )
     else:
-        result.note_metodologiche.extend(detect_shared_room_polygons(rooms, room_polys))
+        result.note_metodologiche.extend(merge_notes)
 
     # --- Copertura dedicata, se caricata separatamente ---
     if pdf_copertura_path and v_copertura and v_copertura.is_valid:
         doc_cop = fitz.open(pdf_copertura_path)
         scale_pagina_cop = find_scale_on_page(doc_cop, 0) or v_copertura.scale_denominator
+        scale_pagina_cop = _resolve_scale(doc_cop, 0, scale_pagina_cop, "Pianta di copertura", result.note_metodologiche)
         rooms_cop, polys_cop = rooms_with_polygons(doc_cop, scale_pagina_cop, plan_page=0)
         doc_cop.close()
         area_dedicata = _extract_roof_area(list(zip(rooms_cop, polys_cop)))
@@ -209,6 +274,7 @@ def extract_quantities(
     if pdf_stato_di_fatto_path and v_sdf and v_sdf.is_valid:
         doc_sdf = fitz.open(pdf_stato_di_fatto_path)
         scale_pagina_sdf = find_scale_on_page(doc_sdf, 0) or v_sdf.scale_denominator
+        scale_pagina_sdf = _resolve_scale(doc_sdf, 0, scale_pagina_sdf, "Stato di fatto", result.note_metodologiche)
         rooms_sdf, _ = rooms_with_polygons(doc_sdf, scale_pagina_sdf, plan_page=0)
         doc_sdf.close()
         confronto = compare_stati(rooms_sdf, rooms)
@@ -227,6 +293,9 @@ def extract_quantities(
     result.openings = openings
     result.structural_elements = structural_elements
     result.footprint_area_m2 = round(footprint, 2)
+    result.perimetro_esterno_m = round(perimetro_esterno, 2)
+    result.piscina_area_m2 = round(piscina.area_m2, 2) if piscina else 0.0
+    result.piscina_perimetro_m = round(piscina.perimeter_m, 2) if piscina else 0.0
     result.roof_area_m2 = round(roof_area, 2)
     result.rooms_sdf = rooms_sdf
     result.confronto = confronto
@@ -250,6 +319,9 @@ def compute_voci(
     db_path: str,
     prezzario_id: int | None,
     capitolato_text: str | None = None,
+    perimetro_esterno_m: float = 0.0,
+    piscina_area_m2: float = 0.0,
+    piscina_perimetro_m: float = 0.0,
 ) -> PipelineResult:
     """Da vani/aperture/elementi (rilevati automaticamente e/o corretti
     dall'utente nel passaggio di verifica) alle righe di computo VALORIZZATE,
@@ -276,6 +348,8 @@ def compute_voci(
         rooms, openings, answers, parametri, voci_prezzario,
         footprint_area_m2=footprint_area_m2, structural_elements=structural_elements,
         roof_area_m2_plan=roof_area_m2, rooms_sdf=rooms_sdf,
+        perimetro_esterno_m=perimetro_esterno_m,
+        piscina_area_m2=piscina_area_m2, piscina_perimetro_m=piscina_perimetro_m,
     )
     # le note raccolte durante l'estrazione (es. avviso "nessun vano riconosciuto",
     # scale diverse su pagine diverse) vanno CONSERVATE, non sostituite da quelle
@@ -286,6 +360,9 @@ def compute_voci(
     result.openings = openings
     result.structural_elements = structural_elements
     result.footprint_area_m2 = round(footprint_area_m2, 2)
+    result.perimetro_esterno_m = round(perimetro_esterno_m, 2)
+    result.piscina_area_m2 = round(piscina_area_m2, 2)
+    result.piscina_perimetro_m = round(piscina_perimetro_m, 2)
     result.roof_area_m2 = round(roof_area_m2, 2)
     result.confronto = confronto
     result.questions_asked = questions
@@ -346,6 +423,9 @@ def build_from_quantities(
     primus_out: str,
     word_out: str,
     capitolato_text: str | None = None,
+    perimetro_esterno_m: float = 0.0,
+    piscina_area_m2: float = 0.0,
+    piscina_perimetro_m: float = 0.0,
 ) -> PipelineResult:
     """Da vani/aperture/elementi ai file finali del computo, in un solo passo
     (calcola le voci e genera subito i file, senza passaggio di revisione
@@ -359,6 +439,8 @@ def build_from_quantities(
         roof_area_m2=roof_area_m2, rooms_sdf=rooms_sdf, confronto=confronto,
         note_metodologiche=note_metodologiche, validation_messages=validation_messages,
         db_path=db_path, prezzario_id=prezzario_id, capitolato_text=capitolato_text,
+        perimetro_esterno_m=perimetro_esterno_m,
+        piscina_area_m2=piscina_area_m2, piscina_perimetro_m=piscina_perimetro_m,
     )
     final = build_files_from_voci(
         voci=computed.voci, meta=meta, note_metodologiche=computed.note_metodologiche,
@@ -418,4 +500,6 @@ def run_pipeline(
         db_path=db_path, prezzario_id=prezzario_id,
         excel_out=excel_out, primus_out=primus_out, word_out=word_out,
         capitolato_text=capitolato_text,
+        perimetro_esterno_m=extraction.perimetro_esterno_m,
+        piscina_area_m2=extraction.piscina_area_m2, piscina_perimetro_m=extraction.piscina_perimetro_m,
     )

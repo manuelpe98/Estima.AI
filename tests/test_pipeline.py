@@ -76,7 +76,8 @@ def test_nuova_costruzione():
 
     print("\n-- Voci di computo --")
     categorie_attese = {"Pavimenti", "Pareti interne", "Serramenti esterni", "Porte interne",
-                         "Impianto elettrico", "Impianto idrico-sanitario", "Scavi",
+                         "Impianti (a corpo)", "Scavi", "Fondazioni", "Solai", "Cappotto termico esterno",
+                         "Impermeabilizzazioni",
                          "Strutture in elevazione (calcestruzzo)", "Strutture in elevazione (acciaio)",
                          "Copertura"}
     categorie_trovate = {v.categoria for v in result.voci}

@@ -73,6 +73,13 @@ class ComputoVoce:
     # una modifica manuale a quantità/prezzo: distinto da 'note', che sono le
     # note metodologiche generate automaticamente dal sistema.
     commento: str = ""
+    # True per una voce che il sistema NON può quantificare/prezzare in modo
+    # affidabile dai soli elaborati caricati (es. opere accessorie non
+    # rappresentate in pianta, o misurabili solo con dati che il rilievo
+    # automatico non ha): la riga viene comunque generata, con quantità e
+    # prezzo a 0, per garantire che la VOCE non manchi dal computo — ma va
+    # evidenziata (colore) e completata a mano da chi rivede il computo.
+    da_completare: bool = False
 
     @property
     def importo(self) -> float:

@@ -92,6 +92,9 @@ PLACEHOLDER_VOCI = [
     ("scavi", "standard", "PLC-SCA-01",
      "Scavo di sbancamento a sezione ampia per la formazione del sedime di fondazione, "
      "con carico e trasporto a discarica del materiale eccedente", "m3", 18.00),
+    ("scavi", "piscina", "PLC-SCA-PISC-01",
+     "Scavo a sezione obbligata per la formazione della vasca piscina, con carico e trasporto a discarica "
+     "del materiale eccedente", "m3", 22.00),
 
     # Strutture in elevazione — cemento armato (pilastri e travi)
     ("strutture_cls", "standard", "PLC-CLS-01",
@@ -120,4 +123,68 @@ PLACEHOLDER_VOCI = [
      "Demolizione di pavimentazione esistente, incluso trasporto a discarica delle macerie", "m2", 15.00),
     ("demolizioni", "intonaco", "PLC-DEM-INT",
      "Demolizione di intonaco esistente su pareti, incluso trasporto a discarica delle macerie", "m2", 12.00),
+
+    # Fondazioni (prezzo al m3, in opera)
+    ("fondazioni", "standard", "PLC-FND-01",
+     "Fondazioni in calcestruzzo armato (platea o travi rovesce), gettate in opera, inclusi magrone e casseratura",
+     "m3", 260.00),
+
+    # Solai (prezzo al m2, pacchetto completo: struttura + soletta, esclusa finitura di pavimento)
+    ("solai", "standard", "PLC-SOL-01",
+     "Solaio in laterocemento (o predalles) completo di soletta collaborante, esclusa la finitura di pavimento "
+     "(computata a parte)", "m2", 90.00),
+
+    # Cappotto termico esterno (prezzo al m2 di parete, a spessore standard: correggere se lo spessore reale "
+    # differisce sensibilmente da quello indicato nei parametri)
+    ("cappotto_termico", "EPS/polistirene", "PLC-CAP-01",
+     "Cappotto termico esterno in EPS, fornito e posto in opera, incluso rasatura e rete portaintonaco", "m2", 75.00),
+    ("cappotto_termico", "Lana di roccia", "PLC-CAP-02",
+     "Cappotto termico esterno in lana di roccia, fornito e posto in opera, incluso rasatura e rete portaintonaco",
+     "m2", 85.00),
+    ("cappotto_termico", "Fibra di legno", "PLC-CAP-03",
+     "Cappotto termico esterno in fibra di legno, fornito e posto in opera, incluso rasatura e rete portaintonaco",
+     "m2", 95.00),
+    ("cappotto_termico", "Altro (specificare a parte)", "PLC-CAP-99",
+     "Cappotto termico esterno — materiale da definire, voce generica", "m2", 80.00),
+
+    # Impermeabilizzazioni (vespaio/fondazioni contro terra, prezzo al m2 di sedime)
+    ("impermeabilizzazioni", "standard", "PLC-IMP-01",
+     "Impermeabilizzazione e vespaio areato (o magrone + guaina) contro terra alla base dell'edificio",
+     "m2", 35.00),
+    ("impermeabilizzazioni", "piscina", "PLC-IMP-PISC-01",
+     "Impermeabilizzazione della vasca piscina (pareti e fondo), guaina o rivestimento specifico per vasche",
+     "m2", 55.00),
+
+    # Piscina (scavo dedicato in "scavi"/piscina; qui vasca strutturale e bordo)
+    ("piscina_vasca", "standard", "PLC-PSC-01",
+     "Vasca piscina in calcestruzzo armato (pareti e fondo), gettata in opera, esclusi impermeabilizzazione, "
+     "rivestimento e impianto di filtrazione (computati a parte)", "m2", 320.00),
+    ("piscina_bordo", "standard", "PLC-PSC-02",
+     "Pavimentazione del bordo perimetrale della piscina, antiscivolo, incluso sottofondo", "m2", 70.00),
+
+    # Opere accessorie individuate ma NON quantificabili in modo affidabile dai soli elaborati
+    # architettonici caricati in questa versione (richiedono la planimetria generale/rete
+    # sottoservizi, le sezioni quotate o un rilievo dedicato): vengono comunque elencate come
+    # voce, con quantità e prezzo a 0, da completare manualmente — invece di essere omesse.
+    ("scala_esterna", "standard", "PLC-SCE-01",
+     "Scala esterna (struttura, gradini e rivestimento) — individuata in pianta ma non quotata in modo "
+     "misurabile automaticamente: quantità e prezzo da completare manualmente", "corpo", 0.00),
+    ("opere_esterne", "recinzione", "PLC-OPE-01",
+     "Recinzione esterna del lotto — non rappresentata nella pianta di progetto caricata: quantità e prezzo "
+     "da completare manualmente in base alla planimetria generale", "ml", 0.00),
+    ("opere_esterne", "smaltimento_acque", "PLC-OPE-02",
+     "Rete di smaltimento acque bianche/nere esterne (tubazioni, pozzetti, pozzi perdenti) — non rappresentata "
+     "nella pianta di progetto caricata: quantità e prezzo da completare manualmente in base alla planimetria "
+     "generale/rete sottoservizi", "corpo", 0.00),
+    ("opere_esterne", "pavimentazioni_esterne", "PLC-OPE-03",
+     "Pavimentazioni esterne, marciapiedi e sistemazioni del sedime (solarium, vialetti, scivoli) — non "
+     "quantificate in modo affidabile dalla sola pianta architettonica: quantità e prezzo da completare "
+     "manualmente", "m2", 0.00),
+
+    # Impianti (elettrico + idrico-sanitario + termico/climatizzazione insieme, a corpo, come percentuale
+    # indicativa del resto del computo — l'importo è calcolato dalla pipeline, non da quantità x prezzo unitario)
+    ("impianti_a_corpo", "standard", "PLC-IMP-CORPO-01",
+     "Impianti (elettrico, idrico-sanitario, termico/climatizzazione) — stima a corpo, esclusa dal rilievo "
+     "dettagliato in questa versione: valorizzata come percentuale indicativa del resto del computo, da "
+     "sostituire con un computo impiantistico dedicato appena disponibile", "a corpo", 0.00),
 ]

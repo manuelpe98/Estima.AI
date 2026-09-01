@@ -17,6 +17,8 @@ CATEGORY_KEYWORDS = {
     "impianto_idrico": ["impianto idrico", "sanitari", "termoidraulico", "climatizzazione"],
     "tipo_struttura": ["cemento armato", "muratura portante", "struttura mista", "struttura in legno"],
     "copertura_tipo": ["copertura", "manto di copertura", "tetto"],
+    "cappotto_termico": ["cappotto", "isolamento a cappotto", "isolamento termico esterno", "eps", "polistirene",
+                          "lana di roccia", "fibra di legno"],
 }
 
 QUESTIONS: list[CapitolatoQuestion] = [
@@ -69,6 +71,11 @@ QUESTIONS: list[CapitolatoQuestion] = [
         opzioni=["Tetto a falde, manto in laterizio", "Tetto a falde, manto in cemento",
                  "Copertura piana con guaina bituminosa", "Copertura metallica",
                  "Altro (specificare a parte)"],
+    ),
+    CapitolatoQuestion(
+        id="cappotto_termico", categoria="Cappotto termico esterno",
+        testo="Che materiale isolante è previsto per il cappotto termico esterno?",
+        opzioni=["EPS/polistirene", "Lana di roccia", "Fibra di legno", "Altro (specificare a parte)"],
     ),
 ]
 

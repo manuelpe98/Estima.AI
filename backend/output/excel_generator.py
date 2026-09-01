@@ -10,6 +10,11 @@ HEADER_FONT = Font(color="FFFFFF", bold=True)
 TITLE_FONT = Font(bold=True, size=14)
 THIN = Side(style="thin", color="BFBFBF")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+# Evidenzia le voci che il sistema non può quantificare/prezzare da solo
+# (ComputoVoce.da_completare): quantità e prezzo a 0, da completare a mano
+# prima di considerare il computo definitivo — vedi anche la nota di riga.
+DA_COMPLETARE_FILL = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+DA_COMPLETARE_FONT = Font(bold=True, color="7F6000")
 
 COLUMNS = ["N.", "Codice", "Categoria", "Descrizione", "U.M.", "Quantità",
            "Prezzo unitario (€)", "Importo (€)", "Note", "Commento"]
@@ -37,16 +42,33 @@ def build_excel(voci: list[ComputoVoce], meta: ProjectMeta, out_path: str) -> st
 
     row = header_row + 1
     totale = 0.0
+    righe_da_completare = 0
     for v in voci:
+        da_completare = getattr(v, "da_completare", False)
+        note_cell = v.note
+        if da_completare:
+            righe_da_completare += 1
+            note_cell = (("⚠ DA COMPLETARE A MANO — " + note_cell) if note_cell
+                         else "⚠ DA COMPLETARE A MANO: quantità e prezzo non calcolabili da questa pianta.")
         values = [v.numero, v.codice, v.categoria, v.descrizione, v.unita_misura,
-                  v.quantita, v.prezzo_unitario, v.importo, v.note, getattr(v, "commento", "")]
+                  v.quantita, v.prezzo_unitario, v.importo, note_cell, getattr(v, "commento", "")]
         for col_idx, val in enumerate(values, start=1):
             cell = ws.cell(row=row, column=col_idx, value=val)
             cell.border = BORDER
             cell.alignment = Alignment(vertical="top", wrap_text=(col_idx in (4, 9, 10)))
             if col_idx in (6, 7, 8):
                 cell.number_format = "#,##0.00"
+            if da_completare:
+                cell.fill = DA_COMPLETARE_FILL
+                if col_idx == 9:
+                    cell.font = DA_COMPLETARE_FONT
         totale += v.importo
+        row += 1
+
+    if righe_da_completare:
+        legend_cell = ws.cell(row=row + 1, column=2, value=f"⚠ {righe_da_completare} voce/i evidenziata/e in giallo: "
+                               "da completare a mano (quantità/prezzo non calcolabili da questa pianta)")
+        legend_cell.font = DA_COMPLETARE_FONT
         row += 1
 
     ws.cell(row=row + 1, column=7, value="TOTALE COMPUTO").font = Font(bold=True)

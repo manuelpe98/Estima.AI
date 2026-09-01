@@ -6,6 +6,7 @@ invece di procedere con una stima silenziosa.
 """
 from __future__ import annotations
 import re
+from collections import Counter
 import fitz  # PyMuPDF
 from .models import ValidationResult
 
@@ -69,6 +70,87 @@ def find_scale_on_page(doc: "fitz.Document", page_number: int) -> int | None:
                 if text:
                     page_spans.append({"text": text})
     return find_scale(page_spans)
+
+
+STANDARD_SCALES = [1, 2, 5, 10, 20, 25, 50, 75, 100, 125, 150, 200, 250, 400, 500, 1000, 1250, 2000, 2500, 5000]
+PT_TO_PAPER_MM = 25.4 / 72.0
+
+# Soglie di confidenza: la scala "quotata" (dedotta dalle quote reali sul disegno)
+# sostituisce quella dichiarata nel cartiglio SOLO se il segnale è schiacciante,
+# altrimenti si preferisce sempre la scala dichiarata (più prevedibile per l'utente).
+MIN_MATCHED_FOR_EMPIRICAL_SCALE = 20
+MIN_VOTES_FOR_EMPIRICAL_SCALE = 15
+MIN_MAJORITY_RATIO = 1.5
+
+
+def _snap_to_standard_scale(value: float) -> int:
+    return min(STANDARD_SCALES, key=lambda s: abs(s - value))
+
+
+def detect_empirical_scale_on_page(
+    page: "fitz.Page", min_len: float = 15.0, max_dist: float = 25.0
+) -> tuple[int | None, int]:
+    """Deduce la scala del disegno dalle quote effettivamente scritte sulla pianta,
+    invece di fidarsi solo dell'annotazione "SCALA 1:..." nel cartiglio.
+
+    Motivazione: su un cartiglio con più elaborati/riquadri, la scala dichiarata può
+    riferirsi a una vista diversa da quella della pianta usata per il rilievo (è
+    successo su un progetto reale: cartiglio "SCALA 1:200", pianta disegnata in
+    realtà a 1:100). Le piante quotate contengono però numeri (le quote, in cm per
+    convenzione italiana) posizionati vicino ai segmenti di misura corrispondenti:
+    confrontando la lunghezza reale dichiarata (quota) con la lunghezza disegnata
+    (in punti PDF) di ogni segmento vicino si può ricavare empiricamente la scala.
+
+    Ritorna (scala_vincente_o_None, numero_di_coppie_quota-segmento_abbinate).
+    La scala è restituita SOLO se il voto è una maggioranza netta e inequivocabile
+    (altrimenti None, per non sovrascrivere la scala dichiarata con un falso segnale
+    su disegni poco quotati o senza segmenti di misura riconoscibili).
+    """
+    spans: list[tuple[float, float, float]] = []
+    d = page.get_text("dict")
+    for block in d.get("blocks", []):
+        for line in block.get("lines", []):
+            for span in line.get("spans", []):
+                text = span["text"].strip().replace(" ", "")
+                if QUOTE_NUMBER_RE.match(text):
+                    val = float(text.replace(",", "."))
+                    if 5 <= val <= 3000:
+                        x0, y0, x1, y1 = span["bbox"]
+                        spans.append((val, (x0 + x1) / 2.0, (y0 + y1) / 2.0))
+
+    segments: list[tuple[float, float, float]] = []  # (cx, cy, length_pt)
+    for path in page.get_drawings():
+        for item in path.get("items", []):
+            if item[0] == "l":
+                p1, p2 = item[1], item[2]
+                length = ((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2) ** 0.5
+                if length >= min_len:
+                    segments.append(((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0, length))
+
+    votes: Counter[int] = Counter()
+    matched = 0
+    for val, cx, cy in spans:
+        best_dist = None
+        best_len = None
+        for sx, sy, length in segments:
+            dist = ((sx - cx) ** 2 + (sy - cy) ** 2) ** 0.5
+            if dist <= max_dist and (best_dist is None or dist < best_dist):
+                best_dist, best_len = dist, length
+        if best_len:
+            matched += 1
+            scale_est = (val * 10.0) / (best_len * PT_TO_PAPER_MM)
+            votes[_snap_to_standard_scale(scale_est)] += 1
+
+    if matched < MIN_MATCHED_FOR_EMPIRICAL_SCALE or not votes:
+        return None, matched
+    ranked = votes.most_common(2)
+    winner_scale, winner_votes = ranked[0]
+    runner_up_votes = ranked[1][1] if len(ranked) > 1 else 0
+    if winner_votes < MIN_VOTES_FOR_EMPIRICAL_SCALE:
+        return None, matched
+    if runner_up_votes > 0 and winner_votes < runner_up_votes * MIN_MAJORITY_RATIO:
+        return None, matched
+    return winner_scale, matched
 
 
 def count_quote_numbers(spans: list[dict]) -> int:
