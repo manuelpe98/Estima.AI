@@ -59,7 +59,7 @@ OUTPUT_DIR = DATA_DIR / "output"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-MAX_UPLOAD_BYTES = int(os.environ.get("COMPUTO_MAX_UPLOAD_MB", "50")) * 1024 * 1024
+MAX_UPLOAD_BYTES = int(os.environ.get("COMPUTO_MAX_UPLOAD_MB", "500")) * 1024 * 1024
 
 app = FastAPI(title="Computo Metrico Automatico")
 # CORS permissivo perché in questa versione non ci sono ancora account utente:
@@ -147,7 +147,11 @@ def _save_upload(file: UploadFile) -> str:
             if size > MAX_UPLOAD_BYTES:
                 f.close()
                 dest.unlink(missing_ok=True)
-                raise HTTPException(413, f"File troppo grande (limite {MAX_UPLOAD_BYTES // (1024*1024)} MB).")
+                raise HTTPException(
+                    413,
+                    f"Il file '{file.filename}' è troppo grande (supera {MAX_UPLOAD_BYTES // (1024*1024)} MB, "
+                    "il limite per singolo file): riducilo o dividilo e riprova.",
+                )
             f.write(chunk)
     return str(dest)
 

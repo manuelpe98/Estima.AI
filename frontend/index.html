@@ -57,6 +57,13 @@
   .file-chip button { margin: 0; padding: 0; width: 1.2rem; height: 1.2rem; line-height: 1; border-radius: 50%;
     background: #a12626; color: #fff; font-size: .78rem; font-weight: 700; cursor: pointer; flex: none; }
   .file-chip button:hover { background: #7f1d1d; }
+  #uploadProgressWrap { margin-top: .7rem; }
+  #uploadProgressBar { width: 100%; height: 12px; background: #eef1f3; border-radius: 999px; overflow: hidden;
+    border: 1px solid #dbe2e8; }
+  #uploadProgressFill { height: 100%; width: 0%; background: #c0392b; border-radius: 999px;
+    transition: width .2s ease, background-color .4s ease; }
+  #uploadProgressFill.done { background: #1c6b3d; }
+  #uploadProgressLabel { display: block; margin-top: .25rem; }
 </style>
 </head>
 <body>
@@ -165,6 +172,10 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
   il sistema non li legge o interpreta automaticamente in questa versione.</small>
 
   <button id="btnValidate">Verifica elaborati ed estrai vani</button>
+  <div id="uploadProgressWrap" style="display:none">
+    <div id="uploadProgressBar"><div id="uploadProgressFill"></div></div>
+    <small class="hint" id="uploadProgressLabel">Caricamento: 0%</small>
+  </div>
   <div id="validateMsg"></div>
   <small class="hint">Ogni singolo PDF caricato deve essere vettoriale, riportare la scala (es. "SCALA 1:100") ed
   essere quotato: in caso contrario il caricamento viene rifiutato.</small>
@@ -397,6 +408,63 @@ function messaggioErrore(data, res) {
   if (data && data.detail) return typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
   return `Errore HTTP ${res ? res.status : "sconosciuto"}: il server non ha fornito ulteriori dettagli.`;
 }
+
+// Invio con avanzamento del caricamento: fetch() non espone il progresso di
+// invio del corpo della richiesta, quindi per i caricamenti pesanti (pianta +
+// prospetti + render, ecc.) si usa XMLHttpRequest, l'unica API del browser che
+// lo permette. onProgress(bytesInviatiInQuestaRichiesta) viene richiamato ad
+// ogni avanzamento; il chiamante lo combina con quanto già inviato nelle
+// eventuali richieste precedenti per ottenere una barra complessiva.
+function xhrUpload(url, formData, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.upload.addEventListener("progress", (ev) => {
+      if (ev.lengthComputable && onProgress) onProgress(ev.loaded);
+    });
+    xhr.addEventListener("load", () => {
+      let data = null;
+      try { data = JSON.parse(xhr.responseText); } catch (e) { /* risposta non JSON: data resta null */ }
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data });
+    });
+    xhr.addEventListener("error", () => reject(new Error("Errore di rete durante il caricamento.")));
+    xhr.addEventListener("abort", () => reject(new Error("Caricamento interrotto.")));
+    xhr.send(formData);
+  });
+}
+
+// Barra di avanzamento del caricamento: rossa durante il caricamento,
+// diventa verde solo a caricamento riuscito e concluso (richiesto per i file
+// pesanti, dove l'invio può richiedere tempo su connessioni lente).
+const uploadProgress = {
+  wrap: null, fill: null, label: null,
+  start(totalBytes) {
+    this.wrap = document.getElementById("uploadProgressWrap");
+    this.fill = document.getElementById("uploadProgressFill");
+    this.label = document.getElementById("uploadProgressLabel");
+    this.totalBytes = totalBytes;
+    this.fill.classList.remove("done");
+    this.fill.style.width = "0%";
+    this.label.textContent = "Caricamento: 0%";
+    this.wrap.style.display = "block";
+  },
+  update(bytesSent) {
+    if (!this.totalBytes) return;
+    const pct = Math.min(100, Math.round((bytesSent / this.totalBytes) * 100));
+    this.fill.style.width = `${pct}%`;
+    this.label.textContent = `Caricamento: ${pct}%`;
+  },
+  done() {
+    this.fill.classList.add("done");
+    this.fill.style.width = "100%";
+    this.label.textContent = "Caricamento completato";
+  },
+  error(msg) {
+    // resta rossa (non aggiunge la classe "done"): indica visivamente che il
+    // caricamento non si è concluso con successo
+    this.label.textContent = msg || "Caricamento interrotto per un errore";
+  },
+};
 
 function initFileInput(key) {
   fileStore[key] = [];
@@ -729,6 +797,20 @@ document.getElementById("btnValidate").onclick = async () => {
   strutturale.forEach((f, i) => toValidate.push([`strutturale ${i + 1}/${strutturale.length}: ${f.name}`, f]));
   copertura.forEach((f, i) => toValidate.push([`copertura ${i + 1}/${copertura.length}: ${f.name}`, f]));
 
+  // Tutti i file che verranno effettivamente trasmessi in questo giro (la
+  // verifica qui sotto invia di nuovo pianta/sdf/strutturale/copertura, poi
+  // /api/estrai-vani li invia tutti un'altra volta insieme agli altri campi):
+  // la barra di avanzamento segue i byte REALMENTE inviati sulla rete, quindi
+  // somma anche questa duplicazione — è quello che l'utente vede scorrere.
+  const tuttiIFilePerBarra = [
+    ...toValidate.map(([, f]) => f),
+    ...progetto, ...sdf, ...strutturale, ...copertura, ...prospetti, ...legge10,
+    ...acustica, ...relazioneTecnica, ...render, ...modello3d, ...altriDocumenti,
+  ];
+  const totaleByte = tuttiIFilePerBarra.reduce((s, f) => s + f.size, 0);
+  let byteInviatiFinora = 0;
+  uploadProgress.start(totaleByte);
+
   const msgEl = document.getElementById("validateMsg");
   msgEl.textContent = "Verifica in corso...";
   msgEl.className = "msg";
@@ -737,12 +819,20 @@ document.getElementById("btnValidate").onclick = async () => {
   for (const [label, file] of toValidate) {
     const fd = new FormData();
     fd.append("file", file);
+    const baseInviati = byteInviatiFinora;
     try {
-      const res = await fetch(`${API}/api/validate`, { method: "POST", body: fd });
-      const data = await res.json();
-      report.push(`[${label}] ` + data.messages.join(" "));
-      if (!data.is_valid) allOk = false;
+      const { ok, status, data } = await xhrUpload(`${API}/api/validate`, fd,
+        (loaded) => uploadProgress.update(baseInviati + loaded));
+      byteInviatiFinora = baseInviati + file.size;
+      if (!ok || !data) {
+        report.push(`[${label}] ` + messaggioErrore(data, { status }));
+        allOk = false;
+      } else {
+        report.push(`[${label}] ` + data.messages.join(" "));
+        if (!data.is_valid) allOk = false;
+      }
     } catch (e) {
+      byteInviatiFinora = baseInviati + file.size;
       report.push(`[${label}] Errore di connessione: ${e}`);
       allOk = false;
     }
@@ -751,7 +841,10 @@ document.getElementById("btnValidate").onclick = async () => {
   msgEl.className = "msg " + (allOk ? "ok" : "err");
   document.getElementById("step1b").style.display = "none";
   document.getElementById("step2").style.display = "none";
-  if (!allOk) return;
+  if (!allOk) {
+    uploadProgress.error("Verifica non riuscita: vedi il motivo qui sotto.");
+    return;
+  }
 
   // Elaborati conformi: estrai vani/aperture/elementi (senza calcolare ancora prezzi)
   msgEl.textContent += "\n\nEstrazione di vani, aperture ed elementi in corso (può richiedere qualche secondo sui disegni più dettagliati)...";
@@ -771,11 +864,13 @@ document.getElementById("btnValidate").onclick = async () => {
   fd2.append("legend_page", document.getElementById("legendPage").value || "1");
   fd2.append("structural_legend_page", document.getElementById("structuralLegendPage").value || "1");
 
+  const baseInviatiFase2 = byteInviatiFinora;
   try {
-    const res2 = await fetch(`${API}/api/estrai-vani`, { method: "POST", body: fd2 });
-    const data2 = await res2.json();
-    if (!res2.ok) {
-      msgEl.textContent = messaggioErrore(data2, res2);
+    const { ok, status, data: data2 } = await xhrUpload(`${API}/api/estrai-vani`, fd2,
+      (loaded) => uploadProgress.update(baseInviatiFase2 + loaded));
+    if (!ok || !data2) {
+      uploadProgress.error("Estrazione non riuscita: vedi il motivo qui sotto.");
+      msgEl.textContent = messaggioErrore(data2, { status });
       msgEl.className = "msg err";
       return;
     }
@@ -898,7 +993,9 @@ document.getElementById("btnValidate").onclick = async () => {
     msgEl.textContent = report.join("\n") + `\n\nEstratti ${currentRooms.length} vani, ${currentOpenings.length} aperture, ${currentStruct.length} elementi strutturali.`;
     msgEl.className = "msg ok";
     document.getElementById("step1b").style.display = "block";
+    uploadProgress.done();
   } catch (e) {
+    uploadProgress.error("Caricamento interrotto per un errore.");
     msgEl.textContent = "Errore durante l'estrazione: " + e;
     msgEl.className = "msg err";
   }
