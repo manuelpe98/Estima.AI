@@ -40,6 +40,7 @@ from .pipeline import (
     compute_voci, build_files_from_voci,
 )
 from .prezzario import db as prezzario_db
+from .prezzario.seed_data import REFERENCE_CATEGORIA_SOTTOTIPO, VOCI_SEMPRE_TENTATE
 from .intake import required_documents, TIPI_INTERVENTO
 from .parametri_engine import PARAMETRI
 from .legge10_engine import extract_stratigrafie_reference
@@ -224,7 +225,36 @@ async def api_upload_prezzario(
     pid = prezzario_db.import_prezzario_from_rows(
         conn, {"regione": regione, "anno": anno, "nome": nome}, rows,
     )
-    return {"prezzario_id": pid, "voci_importate": len(rows)}
+
+    # Avviso (non blocca il caricamento, che resta comunque salvato): "categoria" e
+    # "sotto_tipo" NON sono etichette libere, sono valori interni fissi che il motore
+    # di calcolo cerca esattamente (es. categoria "cantiere", sotto_tipo
+    # "approntamento") — un CSV con nomi diversi da quelli attesi viene importato
+    # correttamente ma non produce NESSUNA voce nel computo, in modo silenzioso.
+    # Qui si confronta ogni riga con il vocabolario di riferimento e si avvisa subito,
+    # invece di lasciare scoprire il problema solo al momento del calcolo.
+    coppie_csv = {(r["categoria"].strip(), r["sotto_tipo"].strip()) for r in rows if r.get("categoria") and r.get("sotto_tipo")}
+    corrispondenze = coppie_csv & REFERENCE_CATEGORIA_SOTTOTIPO
+    voci_sempre_mancanti = VOCI_SEMPRE_TENTATE - coppie_csv
+    avviso = None
+    if not corrispondenze:
+        avviso = (
+            "ATTENZIONE: nessuna riga di questo CSV corrisponde a una categoria/sotto_tipo riconosciuta dal "
+            "sistema. 'categoria' e 'sotto_tipo' non sono etichette libere: devono coincidere ESATTAMENTE con i "
+            "valori interni usati dal motore di calcolo (es. categoria 'cantiere', sotto_tipo 'approntamento'). "
+            "Con questo prezzario selezionato, il computo risulterebbe COMPLETAMENTE VUOTO. Contatta chi ha "
+            "sviluppato il sistema per avere l'elenco esatto dei valori attesi, oppure continua a usare il "
+            "prezzario di riferimento predefinito (Regione Lombardia 2022)."
+        )
+    elif voci_sempre_mancanti:
+        avviso = (
+            "Attenzione: alcune voci sempre presenti in ogni computo non sono state trovate in questo CSV "
+            f"(mancano le combinazioni categoria/sotto_tipo: {sorted(voci_sempre_mancanti)}), quindi non "
+            "compariranno nei computi generati con questo prezzario. Le altre voci importate che corrispondono "
+            f"al vocabolario riconosciuto ({len(corrispondenze)} su {len(rows)} righe) funzioneranno regolarmente."
+        )
+
+    return {"prezzario_id": pid, "voci_importate": len(rows), "voci_riconosciute": len(corrispondenze), "avviso": avviso}
 
 
 @app.post("/api/estrai-vani")
@@ -495,6 +525,36 @@ async def api_calcola_voci(
         render_facciate=render_facciate,
     )
 
+    if not result.voci:
+        # Diagnostica: build_computo() tenta SEMPRE almeno le due voci di
+        # apprestamento di cantiere (v. matching.py), indipendentemente dai dati
+        # geometrici — e il controllo più sopra ha già escluso il caso di un input
+        # completamente vuoto. Se nonostante questo il risultato è a zero voci, la
+        # causa quasi certa è che il prezzario ATTIVO non contiene nessuna
+        # categoria/sotto_tipo che il sistema sa cercare (es. un CSV caricato con
+        # nomi diversi da quelli attesi, o un prezzario di prova rimasto selezionato
+        # per errore): senza questo controllo l'utente riceverebbe un computo vuoto
+        # con un 200 OK, senza nessuna spiegazione del motivo.
+        prezzario_attivo = meta.prezzario_nome or (f"id {prezzario_id}" if prezzario_id else "sconosciuto")
+        errore_principale = (
+            f"Il prezzario attualmente selezionato (\"{prezzario_attivo}\") non contiene nessuna voce "
+            "compatibile con i dati inseriti: il computo risulterebbe completamente vuoto."
+        )
+        return JSONResponse(status_code=422, content={
+            "error": errore_principale,
+            "messages": [
+                errore_principale,
+                "Torna al passaggio 3 (\"Prezzario di riferimento\") e controlla quale prezzario è selezionato "
+                "nel menu a tendina.",
+                "Se hai caricato un prezzario reale (CSV), le colonne 'categoria' e 'sotto_tipo' devono contenere "
+                "ESATTAMENTE gli stessi valori interni usati dal sistema (es. categoria 'cantiere', sotto_tipo "
+                "'approntamento'), non nomi liberi a scelta — verifica l'avviso mostrato al momento del "
+                "caricamento del CSV.",
+                "In alternativa, seleziona il prezzario di riferimento predefinito (Regione Lombardia 2022) per "
+                "verificare che il resto del flusso funzioni correttamente.",
+            ],
+        })
+
     return {
         "voci": [asdict(v) for v in result.voci],
         "totale": result.totale,
@@ -518,7 +578,7 @@ async def api_generate(
     nome_progetto: str = Form("Progetto senza nome"),
     committente: str = Form(""),
     ubicazione: str = Form(""),
-    prezzario_nome: str = Form("Prezzario di esempio (placeholder, non ufficiale)"),
+    prezzario_nome: str = Form("Prezzario Regione Lombardia 2022 (selezione di riferimento)"),
     confronto_json: str = Form("[]"),
     note_metodologiche_json: str = Form("[]"),
     validation_messages_json: str = Form("[]"),

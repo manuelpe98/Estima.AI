@@ -19,6 +19,13 @@ class RoomQuantity:
     area_m2: float
     perimeter_m: float
     source: str = "rilevata da poligono disegno"
+    # Piano di appartenenza (es. "TERRA", "PRIMO", "INTERRATO"), assegnato SOLO
+    # quando la tavola contiene più piante affiancate sullo stesso foglio (vedi
+    # geometry_engine._piano_label_positions): il vano viene associato al
+    # titolo di piano più vicino sulla pagina. None quando la tavola contiene
+    # una sola pianta (informazione non necessaria) o quando non è stato
+    # possibile determinarlo.
+    piano: Optional[str] = None
 
 
 @dataclass
@@ -121,5 +128,5 @@ class ProjectMeta:
     nome_progetto: str = "Progetto senza nome"
     committente: str = ""
     ubicazione: str = ""
-    prezzario_nome: str = "Prezzario di esempio (placeholder, non ufficiale)"
+    prezzario_nome: str = "Prezzario Regione Lombardia 2022 (selezione di riferimento)"
     tipo_intervento: str = "nuova_costruzione"  # "nuova_costruzione" | "ristrutturazione"

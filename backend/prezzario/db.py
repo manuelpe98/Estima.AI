@@ -1,5 +1,6 @@
-"""Database (SQLite) dei prezzari: quello di esempio precaricato più quelli
-che l'utente carica progetto per progetto (uno per regione/anno, riutilizzabili)."""
+"""Database (SQLite) dei prezzari: quello di riferimento precaricato (Regione
+Lombardia 2022) più quelli che l'utente carica progetto per progetto (uno per
+regione/anno, riutilizzabili)."""
 from __future__ import annotations
 import sqlite3
 from pathlib import Path

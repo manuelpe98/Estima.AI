@@ -171,8 +171,11 @@ def build_word(voci: list[ComputoVoce], meta: ProjectMeta, note_metodologiche: l
         "rappresentate nella pianta caricata (es. recinzione, smaltimento acque, sistemazioni esterne) — "
         "sono comunque incluse nell'elenco come segnaposto, evidenziate in giallo con quantità e prezzo a "
         "zero: vanno completate a mano dal tecnico dopo verifica sugli elaborati generali/di dettaglio. Il "
-        "prezzario utilizzato, se non caricato esplicitamente dall'utente, è un prezzario di esempio a "
-        "scopo dimostrativo e non ha valore ufficiale."
+        "prezzario utilizzato, se non caricato esplicitamente dall'utente, è una selezione di riferimento "
+        "tratta dal Prezzario Regionale delle Opere Pubbliche 2022 di Regione Lombardia: alcune voci sono "
+        "somme di più articoli ufficiali o l'articolo ufficiale più simile disponibile (segnalato come tale "
+        "nella descrizione), quindi non sostituisce comunque un prezzario di progetto specifico né un "
+        "computo redatto da un tecnico abilitato."
     )
 
     doc.save(out_path)

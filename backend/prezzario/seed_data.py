@@ -1,397 +1,380 @@
-"""Prezzario di ESEMPIO usato come default quando l'utente non ne carica uno.
+"""Prezzario di riferimento usato come default quando l'utente non ne carica uno.
 
-ATTENZIONE: questi NON sono i prezzi ufficiali del Prezzario Regione Lombardia.
-Sono valori segnaposto plausibili, usati solo per dimostrare la pipeline.
-Il prezzario reale (regione/anno) va caricato dall'utente e salvato nel
-database tramite `db.import_prezzario_from_rows`.
+Contiene una selezione curata di voci tratte dal Prezzario Regionale delle Opere
+Pubbliche, edizione 2022, di Regione Lombardia (in collaborazione con il Comune di
+Milano) — il prezzario ufficiale caricato da Franco il 04/09/2026, tenuto qui come
+riferimento permanente da usare ogni volta che l'utente non carica un proprio
+prezzario (CSV) e non ne seleziona uno diverso.
+
+Ogni voce riporta nella descrizione il codice e il volume di provenienza. Non tutte
+le combinazioni (categoria, sotto_tipo) hanno un corrispondente ufficiale 1:1 nel
+prezzario regionale: dove necessario sono stati usati, con trasparenza dichiarata
+nella descrizione stessa:
+  - somme di due voci ufficiali (es. intonaco + pittura, vasca piscina + rivestimento);
+  - la voce ufficiale più simile disponibile, quando manca una voce specifica
+    (segnalate con "adattata"/"non essendo censita...");
+  - riferimenti generici non ufficiali (prefisso RIF-...-99 o simili) per le opzioni
+    "Altro (specificare a parte)" e per alcune voci sempre "da completare a mano"
+    (il cui prezzo non incide comunque sul totale calcolato, es. spinottature,
+    opere_esterne, acustica, scale).
+
+Il catalogo completo del prezzario (oltre 35.000 articoli ufficiali) è stato
+estratto dai PDF caricati ma non importato come prezzario separato consultabile:
+resta un possibile sviluppo futuro se sarà utile poter scegliere singoli codici
+ufficiali invece di questo set curato.
+
+Un prezzario reale caricato dall'utente (tramite `db.import_prezzario_from_rows`)
+ha comunque sempre la precedenza quando selezionato esplicitamente.
 """
 
 PLACEHOLDER_PREZZARIO_META = {
     "regione": "Lombardia",
-    "anno": 2026,
-    "nome": "ESEMPIO PLACEHOLDER — non ufficiale, sostituire con il prezzario reale",
+    "anno": 2022,
+    "nome": "Prezzario Regione Lombardia 2022 (selezione di riferimento)",
     "is_placeholder": True,
 }
 
 # categoria, sotto_tipo (deve combaciare con le opzioni in capitolato_engine.py),
 # codice, descrizione, unita_misura, prezzo (€)
 PLACEHOLDER_VOCI = [
-    # Pavimenti (prezzo al m2, fornito e posto in opera)
-    ("pavimenti", "Gres porcellanato standard", "PLC-PAV-01",
-     "Fornitura e posa di pavimento in gres porcellanato standard, formato corrente, "
-     "incluso sottofondo e materiali di allettamento", "m2", 38.00),
-    ("pavimenti", "Gres porcellanato effetto legno/pietra", "PLC-PAV-02",
-     "Fornitura e posa di pavimento in gres porcellanato effetto legno/pietra, "
-     "formato grande, incluso sottofondo e materiali di allettamento", "m2", 48.00),
-    ("pavimenti", "Parquet prefinito", "PLC-PAV-03",
-     "Fornitura e posa di parquet prefinito multistrato, incluso sottofondo e finitura", "m2", 65.00),
-    ("pavimenti", "Marmo/pietra naturale", "PLC-PAV-04",
-     "Fornitura e posa di pavimento in marmo/pietra naturale, incluso sottofondo", "m2", 110.00),
-    ("pavimenti", "Altro (specificare a parte)", "PLC-PAV-99",
-     "Fornitura e posa di pavimentazione — tipologia da definire, voce generica", "m2", 50.00),
-
-    # Pareti interne: intonaco + tinteggiatura (prezzo al m2 di parete)
-    ("pareti_interne", "Intonaco tradizionale + pittura lavabile", "PLC-INT-01",
-     "Intonaco civile tradizionale a due strati e tinteggiatura con pittura lavabile", "m2", 22.00),
-    ("pareti_interne", "Rasatura civile + pittura", "PLC-INT-02",
-     "Rasatura civile su supporto esistente e tinteggiatura con pittura", "m2", 18.00),
-    ("pareti_interne", "Intonaco premiscelato + pittura decorativa", "PLC-INT-03",
-     "Intonaco premiscelato a macchina e tinteggiatura con pittura decorativa", "m2", 30.00),
-    ("pareti_interne", "Altro (specificare a parte)", "PLC-INT-99",
-     "Trattamento pareti interne — tipologia da definire, voce generica", "m2", 20.00),
-
-    # Serramenti esterni (prezzo al m2 di serramento)
-    ("serramenti_esterni", "PVC doppio vetro basso emissivo", "PLC-SER-01",
-     "Fornitura e posa serramento esterno in PVC con vetrocamera doppio basso emissivo", "m2", 380.00),
-    ("serramenti_esterni", "Alluminio a taglio termico doppio vetro", "PLC-SER-02",
-     "Fornitura e posa serramento esterno in alluminio a taglio termico con vetrocamera doppia", "m2", 480.00),
-    ("serramenti_esterni", "Legno doppio vetro", "PLC-SER-03",
-     "Fornitura e posa serramento esterno in legno con vetrocamera doppia", "m2", 520.00),
-    ("serramenti_esterni", "Alluminio/PVC triplo vetro", "PLC-SER-04",
-     "Fornitura e posa serramento esterno alluminio/PVC con vetrocamera tripla", "m2", 560.00),
-    ("serramenti_esterni", "Altro (specificare a parte)", "PLC-SER-99",
-     "Fornitura e posa serramento esterno — tipologia da definire, voce generica", "m2", 450.00),
-    ("serramenti_esterni", "__FALLBACK_NO_DIM__", "PLC-SER-98",
-     "Fornitura e posa serramento esterno — dimensioni non disponibili da abaco, "
-     "prezzo indicativo a corpo per unità", "cad", 450.00),
-
-    # Porte interne (prezzo a corpo per pezzo, completo di telaio)
-    ("porte_interne", "Porta tamburata laminata standard", "PLC-POR-01",
-     "Fornitura e posa porta interna tamburata laminata, completa di telaio e ferramenta", "cad", 280.00),
-    ("porte_interne", "Porta tamburata laccata", "PLC-POR-02",
-     "Fornitura e posa porta interna tamburata laccata, completa di telaio e ferramenta", "cad", 380.00),
-    ("porte_interne", "Porta in legno massello", "PLC-POR-03",
-     "Fornitura e posa porta interna in legno massello, completa di telaio e ferramenta", "cad", 650.00),
-    ("porte_interne", "Porta rasomuro (a filo muro, a scomparsa)", "PLC-POR-04",
-     "Fornitura e posa porta interna rasomuro a filo muro, completa di controtelaio a scomparsa e ferramenta dedicata",
-     "cad", 780.00),
-    ("porte_interne", "Altro (specificare a parte)", "PLC-POR-99",
-     "Fornitura e posa porta interna — tipologia da definire, voce generica", "cad", 320.00),
-
-    # Impianto elettrico (a corpo per locale)
-    ("impianto_elettrico", "Standard (normativa base)", "PLC-ELE-01",
-     "Impianto elettrico a norma per locale tipo, in tracce su muratura", "cad", 450.00),
-    ("impianto_elettrico", "Predisposizione domotica", "PLC-ELE-02",
-     "Impianto elettrico con predisposizione domotica per locale tipo", "cad", 650.00),
-    ("impianto_elettrico", "Domotica completa", "PLC-ELE-03",
-     "Impianto elettrico domotico completo per locale tipo", "cad", 1200.00),
-    ("impianto_elettrico", "Altro (specificare a parte)", "PLC-ELE-99",
-     "Impianto elettrico per locale tipo — livello da definire, voce generica", "cad", 500.00),
-
-    # Impianto idrico-sanitario (a corpo per locale bagno/cucina)
-    ("impianto_idrico", "Sanitari e rubinetteria standard", "PLC-IDR-01",
-     "Impianto idrico-sanitario con sanitari e rubinetteria standard per locale bagno/cucina", "cad", 600.00),
-    ("impianto_idrico", "Fascia media", "PLC-IDR-02",
-     "Impianto idrico-sanitario con sanitari e rubinetteria di fascia media", "cad", 900.00),
-    ("impianto_idrico", "Fascia alta", "PLC-IDR-03",
-     "Impianto idrico-sanitario con sanitari e rubinetteria di fascia alta", "cad", 1500.00),
-    ("impianto_idrico", "Altro (specificare a parte)", "PLC-IDR-99",
-     "Impianto idrico-sanitario per locale bagno/cucina — fascia da definire, voce generica", "cad", 700.00),
-
-    # Scavi
-    ("scavi", "standard", "PLC-SCA-01",
-     "Scavo di sbancamento a sezione ampia per la formazione del sedime di fondazione, "
-     "con carico e trasporto a discarica del materiale eccedente", "m3", 18.00),
-    ("scavi", "piscina", "PLC-SCA-PISC-01",
-     "Scavo a sezione obbligata per la formazione della vasca piscina, con carico e trasporto a discarica "
-     "del materiale eccedente", "m3", 22.00),
-
-    # Strutture in elevazione — cemento armato (pilastri e travi): calcestruzzo,
-    # casseforme e acciaio come voci distinte.
-    ("strutture_cls", "standard", "PLC-CLS-01",
-     "Fornitura e posa in opera di calcestruzzo a prestazione garantita per la realizzazione di pilastri e "
-     "travi in elevazione, gettato in opera con pompa o altro mezzo di movimentazione, diametro massimo "
-     "aggregati 32 mm, consistenza S4/S5, compresa la vibratura; esclusi ferro e casseforme (computati a "
-     "parte). Classe di resistenza: C28/35 – XC1. Compreso ogni onere necessario per dare la lavorazione "
-     "eseguita a regola d'arte.", "m3", 220.00),
-    ("strutture_cls", "casseforme", "PLC-CLS-CAS-01",
-     "Casseforme per getti di calcestruzzo in elevazione (pilastri e travi), eseguite con pannelli metallici "
-     "modulari e pedane in legno, eseguite fino a 4,50 m dal piano d'appoggio, comprese le armature di "
-     "sostegno e di controvento, il disarmante, la manutenzione ed il disarmo, in modo da ottenere superfici "
-     "regolari e planari. Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.",
-     "m2", 60.00),
-    ("strutture_ferro", "standard", "PLC-FER-01",
-     "Fornitura e posa in opera di acciaio in barre ad aderenza migliorata per cemento armato, qualità B450C, "
-     "conforme alla norma UNI EN 10080 ed ai Criteri Ambientali Minimi (D.M. 23/06/2022), per l'armatura di "
-     "pilastri e travi in elevazione; compresa la lavorazione, la sagomatura, la posa, i sormonti, lo sfrido "
-     "e le legature. Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.",
-     "kg", 2.20),
-
-    # Spinottature di ripresa getto — non quantificabili in modo affidabile dalla sola
-    # pianta architettonica (dipendono dal progetto strutturale esecutivo): voce
-    # sempre presente quando c'è struttura in c.a., ma segnaposto da completare a mano.
-    ("spinottature", "standard", "PLC-SPI-01",
-     "Esecuzione di spinottature di collegamento su strutture in calcestruzzo armato, mediante perforazione "
-     "del calcestruzzo, pulizia del foro ed inghisaggio di barre/spinotti con resina epossidica o malta "
-     "colabile ad alte prestazioni, per la ripresa di getto e la solidarizzazione delle nuove strutture — "
-     "quantità dipendente dal progetto strutturale esecutivo, non desumibile dalla sola pianta architettonica: "
-     "quantità e prezzo da completare manualmente. Compreso ogni onere necessario per dare la lavorazione "
-     "eseguita a regola d'arte.", "n.", 0.00),
-
-    # Strutture in elevazione — muratura portante
-    ("strutture_muratura", "standard", "PLC-MUR-01",
-     "Muratura portante in blocchi di laterizio, per strutture in elevazione", "m3", 180.00),
-
-    # Coperture (prezzo al m2 di falda/superficie reale, fornitura e posa completa)
-    ("copertura", "Tetto a falde, manto in laterizio", "PLC-COP-01",
-     "Copertura a falde con manto in tegole di laterizio, incluso pacchetto isolante e sottostruttura", "m2", 95.00),
-    ("copertura", "Tetto a falde, manto in cemento", "PLC-COP-02",
-     "Copertura a falde con manto in tegole di cemento, incluso pacchetto isolante e sottostruttura", "m2", 85.00),
-    ("copertura", "Copertura piana con guaina bituminosa", "PLC-COP-03",
-     "Copertura piana impermeabilizzata con guaina bituminosa, incluso pacchetto isolante", "m2", 60.00),
-    ("copertura", "Copertura metallica", "PLC-COP-04",
-     "Copertura con lastre metalliche grecate, incluso pacchetto isolante e sottostruttura", "m2", 110.00),
-    ("copertura", "Altro (specificare a parte)", "PLC-COP-99",
-     "Copertura — tipologia da definire, voce generica", "m2", 80.00),
-
-    # Demolizioni (solo per ristrutturazione, confronto stato di fatto / progetto)
-    ("demolizioni", "pavimento", "PLC-DEM-PAV",
-     "Demolizione di pavimentazione esistente, incluso trasporto a discarica delle macerie", "m2", 15.00),
-    ("demolizioni", "intonaco", "PLC-DEM-INT",
-     "Demolizione di intonaco esistente su pareti, incluso trasporto a discarica delle macerie", "m2", 12.00),
-
-    # Fondazioni — scomposte come nel computo tradizionale: magrone, calcestruzzo,
-    # casseforme e acciaio come voci distinte (non più un'unica voce "a corpo forfettario").
-    ("fondazioni", "magrone", "PLC-FND-MAGR-01",
-     "Fornitura e posa in opera di calcestruzzo magro di pulizia e livellamento (magrone) per la formazione "
-     "del piano di posa delle fondazioni, classe di resistenza C12/15, gettato in opera dello spessore medio "
-     "indicato, compresa la livellatura della superficie superiore; escluse armature e casseforme. Compreso "
-     "ogni onere necessario per dare la lavorazione eseguita a regola d'arte.", "m3", 110.00),
-    ("fondazioni", "standard", "PLC-FND-CLS-01",
-     "Fornitura e posa in opera di calcestruzzo a prestazione garantita per la realizzazione delle fondazioni "
-     "(platea o travi rovesce e cordoli), gettato in opera con pompa o altro mezzo di movimentazione, diametro "
-     "massimo aggregati 32 mm, consistenza S4/S5, compresa la vibratura; esclusi ferro, casseforme e magrone "
-     "di sottofondazione (computati a parte). Classe di resistenza e di esposizione: C28/35 – XC2. Compreso "
-     "ogni onere necessario per dare la lavorazione eseguita a regola d'arte.", "m3", 230.00),
-    ("fondazioni", "casseforme", "PLC-FND-CAS-01",
-     "Casseforme per getti di calcestruzzo in fondazione (platea, travi rovesce, cordoli e muri controterra "
-     "di fondazione), eseguite con pannelli in legno o metallici fino a 4,50 m dal piano d'appoggio, comprese "
-     "le armature di sostegno, il disarmante, la manutenzione ed il disarmo. Compreso ogni onere necessario "
-     "per dare la lavorazione eseguita a regola d'arte.", "m2", 45.00),
-    ("fondazioni", "acciaio", "PLC-FND-FER-01",
-     "Fornitura e posa in opera di acciaio in barre ad aderenza migliorata per cemento armato, qualità B450C, "
-     "conforme alla norma UNI EN 10080 ed ai Criteri Ambientali Minimi (D.M. 23/06/2022), per l'armatura delle "
-     "fondazioni; compresa la lavorazione, la sagomatura, la posa, i sormonti, lo sfrido e le legature. "
-     "Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.", "kg", 2.10),
-
-    # Approntamento di cantiere (a corpo — il prezzo unitario è sovrascritto a runtime
-    # dal parametro "costo_approntamento_cantiere_eur", perché il costo reale dipende
-    # molto dalla dimensione/durata del cantiere e non è deducibile dalla sola pianta)
-    ("cantiere", "approntamento", "PLC-CNT-01",
-     "Approntamento e installazione del cantiere edile, comprensivo di ogni opera e apprestamento necessario "
-     "alla messa in sicurezza dell'area di lavoro per l'intera durata dei lavori: baracche prefabbricate ad "
-     "uso spogliatoio/ufficio di cantiere e ricovero attrezzi, servizio igienico chimico, dispositivi di "
-     "protezione collettiva e cartellonistica di sicurezza, impianto elettrico e idrico di cantiere, "
-     "recinzione perimetrale dell'area con accessi carrai e pedonali, aree di stoccaggio dei materiali, "
-     "mantenimento in efficienza per l'intera durata dei lavori e sgombero/pulizia finale a opere ultimate. "
-     "Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.", "corpo", 1.00),
-    ("cantiere", "bagno_chimico", "PLC-CNT-02",
-     "Nolo di bagno chimico da cantiere per l'intera durata del cantiere, compreso la regolare pulizia dello "
-     "stesso con cadenza non minore che settimanale. Compreso ogni onere necessario per dare la lavorazione "
-     "eseguita a regola d'arte.", "corpo", 1.00),
-    ("cantiere", "gru", "PLC-CNT-03",
-     "Nolo di gru (a torre o autogru) per l'intera durata del cantiere, compreso trasporto, montaggio, "
-     "smontaggio, verifiche periodiche e manovratore ove necessario. Compreso ogni onere necessario per dare "
-     "la lavorazione eseguita a regola d'arte.", "corpo", 1.00),
-
-    # Assistenza muraria — separata per tipo (come nel computo di riferimento): posa
-    # serramenti/porte (derivata dal conteggio aperture già rilevato) ed elettricista/
-    # idraulico (a corpo, percentuale indicativa, come impianti_a_corpo).
-    ("assistenza_muraria", "serramenti", "PLC-ASM-01",
-     "Assistenza muraria per la posa in opera dei serramenti esterni (falsi telai, riquadrature perimetrali, "
-     "fissaggio delle zanche e rasatura di raccordo con la muratura/cartongesso adiacente), per ciascun "
-     "serramento rilevato in pianta. Compreso ogni onere necessario per dare la lavorazione eseguita a regola "
-     "d'arte.", "m2", 25.00),
-    ("assistenza_muraria", "porte", "PLC-ASM-02",
-     "Assistenza muraria per la posa in opera delle porte interne (falsi telai o controtelai a scomparsa, "
-     "riquadrature perimetrali e fissaggio con la muratura/cartongesso adiacente), per ciascuna porta "
-     "rilevata in pianta — porte con lavorazioni particolari (es. porta di ingresso, porte tagliafuoco, "
-     "portoni basculanti) vanno eventualmente scorporate a parte con una voce dedicata a prezzo maggiorato. "
-     "Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.", "cad", 45.00),
-    ("assistenza_muraria", "elettrico", "PLC-ASM-ELE-01",
-     "Assistenza muraria per la formazione dell'impianto elettrico, dei corpi illuminanti e dell'eventuale "
-     "impianto antintrusione (tracce, fori, passaggi, alloggiamenti delle scatole e dei quadri ed i "
-     "successivi ripristini) — stima a corpo, percentuale indicativa del totale delle altre lavorazioni. "
-     "Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.", "%", 0.00),
-    ("assistenza_muraria", "idraulico", "PLC-ASM-IDR-01",
-     "Assistenza muraria per la realizzazione dell'impianto idrico-sanitario e di climatizzazione (tracce, "
-     "fori, passaggi delle tubazioni, alloggiamenti delle unità ed i successivi ripristini) — stima a corpo, "
-     "percentuale indicativa del totale delle altre lavorazioni. Compreso ogni onere necessario per dare la "
-     "lavorazione eseguita a regola d'arte.", "%", 0.00),
-
-    # Solai — pacchetto completo "a corpo" (laterocemento/predalles: usato di default,
-    # struttura+soletta in un'unica voce) oppure scomposto in casseforme/calcestruzzo/
-    # acciaio se il capitolato indica un solaio gettato in opera (soletta piena).
-    ("solai", "standard", "PLC-SOL-01",
-     "Solaio in laterocemento (o predalles) completo di soletta collaborante, esclusa la finitura di pavimento "
-     "(computata a parte)", "m2", 90.00),
-    ("solai", "casseforme", "PLC-SOL-CAS-01",
-     "Casseforme per il getto del solaio in soletta piena, comprensive di pannellatura, orditura di sostegno "
-     "e puntellazione, eseguite fino a 4,50 m dal piano d'appoggio, compreso il disarmante, la manutenzione "
-     "ed il disarmo. Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.",
-     "m2", 38.00),
-    ("solai", "calcestruzzo", "PLC-SOL-CLS-01",
-     "Fornitura e posa in opera di calcestruzzo a prestazione garantita per la realizzazione del solaio in "
-     "soletta piena, gettato in opera con pompa, diametro massimo aggregati 32 mm, consistenza S4/S5, "
-     "compresa la vibratura; esclusi ferro e casseforme. Classe di resistenza e di esposizione: C28/35 – "
-     "XC1/XC2. Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.",
-     "m3", 230.00),
-    ("solai", "acciaio", "PLC-SOL-FER-01",
-     "Fornitura e posa in opera di acciaio in barre ad aderenza migliorata per cemento armato, qualità B450C, "
-     "conforme alla norma UNI EN 10080 ed ai Criteri Ambientali Minimi (D.M. 23/06/2022), per l'armatura del "
-     "solaio in soletta piena; compresa la lavorazione, la sagomatura, la posa, i sormonti, lo sfrido e le "
-     "legature. Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.",
-     "kg", 2.20),
-
-    # Vespaio aerato sotto la pavimentazione del piano terra/interrato (solo se
-    # richiesto dal capitolato: "vespaio_aerato")
-    ("vespaio", "standard", "PLC-VES-01",
-     "Formazione di vespaio aerato sotto la pavimentazione, realizzato mediante casseri modulari a perdere in "
-     "polipropilene riciclato tipo igloo, posati su piano predisposto, compresa la formazione delle aperture/"
-     "condotti di aerazione, il getto di calcestruzzo di completamento delle cupole e della soletta superiore "
-     "armata con rete elettrosaldata. Compreso ogni onere necessario per dare la lavorazione eseguita a "
-     "regola d'arte.", "m2", 45.00),
-
-    # Cartongesso — contropareti, pareti divisorie interne e velette (solo se
-    # richiesti dal capitolato).
-    ("contropareti", "standard", "PLC-CTP-01",
-     "Formazione di contropareti interne in lastre di cartongesso, realizzate su orditura metallica zincata, "
-     "comprese le lastre, l'eventuale interposizione di materassino isolante, la stuccatura e rasatura dei "
-     "giunti previa posa di rete, la movimentazione del materiale e le assistenze. Compreso ogni onere "
-     "necessario per dare la lavorazione eseguita a regola d'arte.", "m2", 65.00),
-    ("pareti_divisorie", "Muratura in laterizio forato", "PLC-PDI-01",
-     "Formazione di pareti divisorie interne in blocchi di laterizio forato, eseguita con malta di allettamento, "
-     "compresa la formazione dei piani di lavoro e l'ammorsamento alle strutture adiacenti. Compreso ogni "
-     "onere necessario per dare la lavorazione eseguita a regola d'arte.", "m2", 42.00),
-    ("pareti_divisorie", "Cartongesso su orditura metallica", "PLC-PDI-02",
-     "Formazione di pareti divisorie interne in cartongesso, costituite da orditura metallica zincata e doppia "
-     "lastra su entrambi i lati, compresa l'interposizione di materassino fonoisolante in lana minerale, la "
-     "stuccatura e rasatura dei giunti previa posa di rete, la movimentazione del materiale e le assistenze. "
-     "Compreso ogni onere necessario per dare la lavorazione eseguita a regola d'arte.", "m2", 70.00),
-    ("pareti_divisorie", "Altro (specificare a parte)", "PLC-PDI-99",
-     "Formazione di pareti divisorie interne — tipologia da definire, voce generica", "m2", 55.00),
-    ("velette", "standard", "PLC-VEL-01",
-     "Formazione di velette e/o gole luminose in cartongesso su orditura metallica (per la chiusura di soglie "
-     "finestre e/o l'alloggiamento di illuminazione a led indiretta), comprese le lastre, la stuccatura e "
-     "rasatura dei giunti e le assistenze — posizioni e sviluppo lineare da definire in base al progetto: "
-     "quantità e prezzo da completare manualmente. Compreso ogni onere necessario per dare la lavorazione "
-     "eseguita a regola d'arte.", "ml", 0.00),
-    ("controsoffitti", "standard", "PLC-CTS-01",
-     "Formazione di controsoffitti in lastre di cartongesso su orditura metallica zincata, compreso l'impiego "
-     "di trabattelli, le assistenze, la stuccatura e rasatura a due mani in corrispondenza dei giunti e la "
-     "pulizia finale con allontanamento dei materiali di risulta — l'estensione reale (quali ambienti hanno "
-     "un'altezza interna ridotta rispetto agli altri, e di quanto) va verificata dalle quote riportate in "
-     "pianta/sezioni, non riconosciute automaticamente in questa versione: la quantità qui proposta è "
-     "un'ipotesi sull'intera superficie dei vani, da correggere. Compreso ogni onere necessario per dare la "
-     "lavorazione eseguita a regola d'arte.", "m2", 42.00),
-
-    # Materiale segnalato dalla relazione acustica caricata (vedi acustica_engine.py):
-    # il testo della relazione indica un prodotto/materiale acustico pertinente, ma
-    # quantità e prezzo non sono desumibili dal solo testo — voce sempre segnaposto.
-    ("acustica", "materiale_generico", "PLC-ACU-01",
-     "Materiale o lavorazione per requisiti acustici individuato nella relazione acustica caricata — quantità "
-     "e prezzo da completare manualmente in base al materiale/prodotto specifico indicato nella relazione "
-     "(vedi nota di riga per il riferimento). Compreso ogni onere necessario per dare la lavorazione eseguita "
-     "a regola d'arte.", "corpo", 0.00),
-
-    # Cappotto termico esterno (prezzo al m2 di parete, a spessore standard: correggere se lo spessore reale "
-    # differisce sensibilmente da quello indicato nei parametri)
-    ("cappotto_termico", "EPS/polistirene", "PLC-CAP-01",
-     "Cappotto termico esterno in EPS, fornito e posto in opera, incluso rasatura e rete portaintonaco", "m2", 75.00),
-    ("cappotto_termico", "Lana di roccia", "PLC-CAP-02",
-     "Cappotto termico esterno in lana di roccia, fornito e posto in opera, incluso rasatura e rete portaintonaco",
-     "m2", 85.00),
-    ("cappotto_termico", "Fibra di legno", "PLC-CAP-03",
-     "Cappotto termico esterno in fibra di legno, fornito e posto in opera, incluso rasatura e rete portaintonaco",
-     "m2", 95.00),
-    ("cappotto_termico", "Altro (specificare a parte)", "PLC-CAP-99",
-     "Cappotto termico esterno — materiale da definire, voce generica", "m2", 80.00),
-
-    # Impermeabilizzazioni (vespaio/fondazioni contro terra, prezzo al m2 di sedime)
-    ("impermeabilizzazioni", "standard", "PLC-IMP-01",
-     "Impermeabilizzazione e vespaio areato (o magrone + guaina) contro terra alla base dell'edificio",
-     "m2", 35.00),
-    ("impermeabilizzazioni", "piscina", "PLC-IMP-PISC-01",
-     "Impermeabilizzazione della vasca piscina (pareti e fondo), guaina o rivestimento specifico per vasche",
-     "m2", 55.00),
-
-    # Piscina (scavo dedicato in "scavi"/piscina; qui vasca strutturale e bordo)
-    ("piscina_vasca", "standard", "PLC-PSC-01",
-     "Vasca piscina in calcestruzzo armato (pareti e fondo), gettata in opera, esclusi impermeabilizzazione, "
-     "rivestimento e impianto di filtrazione (computati a parte)", "m2", 320.00),
-    ("piscina_bordo", "standard", "PLC-PSC-02",
-     "Pavimentazione del bordo perimetrale della piscina, antiscivolo, incluso sottofondo", "m2", 70.00),
-
-    # Opere accessorie individuate ma NON quantificabili in modo affidabile dai soli elaborati
-    # architettonici caricati in questa versione (richiedono la planimetria generale/rete
-    # sottoservizi, le sezioni quotate o un rilievo dedicato): vengono comunque elencate come
-    # voce, con quantità e prezzo a 0, da completare manualmente — invece di essere omesse.
-    ("scala_esterna", "standard", "PLC-SCE-01",
-     "Scala esterna (struttura, gradini e rivestimento) — individuata in pianta ma non quotata in modo "
-     "misurabile automaticamente: quantità e prezzo da completare manualmente", "corpo", 0.00),
-    ("scale_interne", "standard", "PLC-SCI-01",
-     "Scala interna (struttura portante, gradini, pianerottoli, ringhiera/parapetto e rivestimento) — "
-     "collega i piani dell'edificio: non quotata in modo misurabile automaticamente dalla sola pianta "
-     "caricata (richiede sezione e/o pianta dei piani collegati). Quantità e prezzo da completare "
-     "manualmente", "corpo", 0.00),
-    ("opere_esterne", "recinzione", "PLC-OPE-01",
-     "Recinzione esterna del lotto — non rappresentata nella pianta di progetto caricata: quantità e prezzo "
-     "da completare manualmente in base alla planimetria generale", "ml", 0.00),
-    ("opere_esterne", "smaltimento_acque", "PLC-OPE-02",
-     "Rete di smaltimento acque bianche/nere esterne e cavidotti elettrici esterni (tubazioni e pozzetti) — non "
-     "rappresentata nella pianta di progetto caricata: quantità e prezzo da completare manualmente in base alla "
-     "planimetria generale/rete sottoservizi", "corpo", 0.00),
-    ("opere_esterne", "pavimentazioni_esterne", "PLC-OPE-03",
-     "Pavimentazioni esterne, marciapiedi e sistemazioni del sedime (solarium, vialetti, scivoli) — non "
-     "quantificate in modo affidabile dalla sola pianta architettonica: quantità e prezzo da completare "
-     "manualmente", "m2", 0.00),
-    ("opere_esterne", "camerette_ispezione", "PLC-OPE-04",
-     "Fornitura e posa in opera di camerette di ispezione in calcestruzzo prefabbricato per il raccordo delle "
-     "reti dei sottoservizi, complete di soletta e chiusino, compreso lo scavo, il rinfianco ed il reinterro. "
-     "Compreso ogni onere necessario per dare la fornitura eseguita a regola d'arte. Non rappresentata nella "
-     "pianta di progetto caricata: quantità e prezzo da completare manualmente in base alla planimetria "
-     "generale/rete sottoservizi", "n.", 0.00),
-    ("opere_esterne", "pozzo_perdente", "PLC-OPE-05",
-     "Fornitura e posa in opera di pozzo perdente costituito da anelli prefabbricati in calcestruzzo forati per "
-     "lo smaltimento nel sottosuolo delle acque meteoriche/reflue, compreso lo scavo, il riempimento in ghiaia "
-     "e il reinterro. Non rappresentato nella pianta di progetto caricata: quantità e prezzo da completare "
-     "manualmente in base alla planimetria generale/rete sottoservizi", "n.", 0.00),
-
-    # Lattonerie: presenti quasi ovunque ci sia una copertura, ma lo sviluppo lineare reale
-    # (gronde, compluvi, displuvi, scossaline) non è desumibile dalla sola superficie di
-    # copertura in pianta.
-    ("lattonerie", "standard", "PLC-LAT-01",
-     "Fornitura e posa in opera di lattonerie (gronde, scossaline, pluviali, converse) in alluminio o rame "
-     "preverniciato, compresi pezzi speciali, sovrapposizioni, fissaggi e raccordi alla rete di scarico. "
-     "Sviluppo lineare non desumibile dalla sola superficie di copertura in pianta: quantità e prezzo da "
-     "completare manualmente da prospetti/sezioni quotate", "ml", 0.00),
-
-    # Soglie e davanzali: tipici di ogni serramento esterno tradizionale, ma quali aperture li
-    # richiedono (finestra normale vs. porta-finestra a raso pavimento, logge, ecc.) è una scelta
-    # di progetto, non deducibile in automatico dalla sola pianta.
-    ("soglie_davanzali", "standard", "PLC-SGD-01",
-     "Fornitura e posa in opera di soglie e davanzali in pietra (o altro materiale da capitolato) per i "
-     "serramenti esterni, completi di gocciolatoio, compresa la lavorazione delle coste e la preparazione del "
-     "piano di posa. Quali aperture li richiedono non è deducibile in automatico dalla sola pianta: quantità e "
-     "prezzo da completare manualmente", "ml", 0.00),
-
-    # Rivestimento di facciata: individuato SOLO visivamente in un render caricato dall'utente e
-    # abbinato dall'AI a una banda di altezza REALMENTE misurata su un prospetto quotato (vedi
-    # elevation_engine.py e ai_assistant.analizza_render) — quantità (superficie) reale, ma il
-    # materiale specifico (pietra, klinker, doghe...) e il relativo prezzo variano troppo per un
-    # prezzo segnaposto: restano sempre da completare manualmente.
-    ("rivestimento_facciata", "standard", "PLC-RIF-01",
-     "Fornitura e posa in opera di rivestimento di facciata (materiale da specificare in base al render/"
-     "capitolato: pietra naturale o ricostruita, klinker, doghe, ecc.), compresi struttura di supporto/collante, "
-     "sigillature e pezzi speciali. Superficie misurata da altezza rilevata su prospetto quotato x perimetro "
-     "esterno; materiale e prezzo da completare manualmente in base a quanto individuato nel render", "m²", 0.00),
-
-    # Impianti (elettrico + idrico-sanitario + termico/climatizzazione insieme, a corpo, come percentuale
-    # indicativa del resto del computo — l'importo è calcolato dalla pipeline, non da quantità x prezzo unitario)
-    ("impianti_a_corpo", "standard", "PLC-IMP-CORPO-01",
-     "Impianti (elettrico, idrico-sanitario, termico/climatizzazione) — stima a corpo, esclusa dal rilievo "
-     "dettagliato in questa versione: valorizzata come percentuale indicativa del resto del computo, da "
-     "sostituire con un computo impiantistico dedicato appena disponibile", "a corpo", 0.00),
+    ('pavimenti', 'Gres porcellanato standard', '1C.18.200.0030.g',
+     "Pavimento in piastrelle di gres fine porcellanato a superficie liscia, spessore 8-10 mm, posato "
+     "con boiacca di cemento su letto di malta o incollato, escluso il sottofondo — piastrelle 30x30 "
+     "cm, colori chiari (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.18.200.0030.g)", 'm2', 28.97),
+    ('pavimenti', 'Gres porcellanato effetto legno/pietra', '1C.18.200.0040.c',
+     "Pavimento in piastrelle di clinker a superficie liscia, formato 30x30 cm, posato con boiacca di "
+     "cemento o incollato, escluso il sottofondo — usato come riferimento più simile per gres in "
+     "grande formato decorativo, non essendo censita una voce specifica 'effetto legno/pietra' "
+     "(fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.18.200.0040.c)", 'm2', 55.84),
+    ('pavimenti', 'Parquet prefinito', '1C.18.400.0020.a',
+     "Pavimento in tavolette di legno di rovere Europa UNI B, incollate su supporto cementizio, "
+     "comprese lamatura, ceratura e assistenze murarie (fonte: Prezzario Regione Lombardia 2022, vol. "
+     "1.1, art. 1C.18.400.0020.a)", 'm2', 62.15),
+    ('pavimenti', 'Marmo/pietra naturale', '1C.18.250.0010.a',
+     "Pavimento in piastrelle di marmo Arabescato Corchia, 1a scelta, lastre calibrate e lucidate, "
+     "formato piccolo (0,05-0,12 m², spessore 10 mm) (fonte: Prezzario Regione Lombardia 2022, vol. "
+     "1.1, art. 1C.18.250.0010.a)", 'm2', 80.54),
+    ('pavimenti', 'Altro (specificare a parte)', 'RIF-PAV-99',
+     "Riferimento generico (media indicativa delle voci ufficiali sopra elencate): il Prezzario "
+     "Regione Lombardia 2022 non prevede una voce 'generica' per pavimentazioni non specificate — "
+     "sostituire con il materiale e il codice realmente previsti dal capitolato", 'm2', 56.88),
+    ('pareti_interne', 'Intonaco tradizionale + pittura lavabile', '1C.07.110.0040 + 1C.24.120.0020.c',
+     "Intonaco completo a civile per interni con malte tradizionali (1C.07.110.0040, € 18,88/m²) + "
+     "idropittura acrilica traspirante superlavabile a due riprese (1C.24.120.0020.c, € 4,09/m²) — "
+     "somma di due voci ufficiali del Prezzario Regione Lombardia 2022, vol. 1.1", 'm2', 22.97),
+    ('pareti_interne', 'Rasatura civile + pittura', '1C.07.230.0010 + 1C.24.120.0020.a',
+     "Rasatura a civile fine su superfici interne con rasante cementizio (1C.07.230.0010, € 8,50/m²) "
+     "+ idropittura a base di copolimeri vinilversatati traspirante (1C.24.120.0020.a, € 3,71/m²) — "
+     "somma di due voci ufficiali del Prezzario Regione Lombardia 2022, vol. 1.1", 'm2', 12.21),
+    ('pareti_interne', 'Intonaco premiscelato + pittura decorativa', '1C.07.220.0010 + 1C.24.120.0040',
+     "Intonaco completo per interni con premiscelato, finitura a civile fine, esecuzione manuale "
+     "(1C.07.220.0010, € 22,69/m²) + rivestimento murale policromo a base di resine acriliche e chips "
+     "colorati, applicato a spruzzo (1C.24.120.0040, € 14,97/m²) — somma di due voci ufficiali del "
+     "Prezzario Regione Lombardia 2022, vol. 1.1", 'm2', 37.66),
+    ('pareti_interne', 'Altro (specificare a parte)', 'RIF-PAR-99',
+     "Riferimento generico (media indicativa delle voci ufficiali sopra elencate): sostituire con la "
+     "lavorazione realmente prevista dal capitolato", 'm2', 24.28),
+    ('serramenti_esterni', 'PVC doppio vetro basso emissivo', '1C.21.100.0010.b',
+     "Finestre e porte finestre in PVC antiurto ad alta resistenza, telaio armato con profilati "
+     "d'acciaio, antaribalta a due battenti, misurazione esterno telaio. NOTA: per convenzione del "
+     "Prezzario regionale i vetri sono sempre esclusi dal prezzo delle lavorazioni (costo del "
+     "vetrocamera basso emissivo da computare a parte con le voci del cap. 1C.23 — Opere da vetraio) "
+     "(fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.21.100.0010.b)", 'm2', 201.67),
+    ('serramenti_esterni', 'Alluminio a taglio termico doppio vetro', '1C.22.250.0010.b',
+     "Serramenti in alluminio per finestre/portefinestre a uno o più battenti, profilati estrusi "
+     "isolati a taglio termico, anodizzazione e verniciatura. Vetri esclusi per convenzione del "
+     "Prezzario regionale (cap. 1C.23) (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. "
+     "1C.22.250.0010.b)", 'm2', 243.08),
+    ('serramenti_esterni', 'Legno doppio vetro', '1C.21.010.0020.a',
+     "Finestre e porte finestre in legno lamellare di abete/pino, telaio unico con controtelaio, a "
+     "uno o più battenti, verniciatura a tre mani. Vetri esclusi per convenzione del Prezzario "
+     "regionale (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.21.010.0020.a)", 'm2', 534.09),
+    ('serramenti_esterni', 'Alluminio/PVC triplo vetro', '1C.22.250.0010.b (adattata)',
+     "Il Prezzario Regione Lombardia 2022 non prevede una voce distinta per serramenti a triplo "
+     "vetro: usato come riferimento il serramento in alluminio a taglio termico (1C.22.250.0010.b, € "
+     "243,08/m², vetri esclusi) — il costo reale di una versione a triplo vetro è superiore, verifica "
+     "e correggi", 'm2', 243.08),
+    ('serramenti_esterni', 'Altro (specificare a parte)', 'RIF-SER-99',
+     "Riferimento generico (media indicativa delle voci ufficiali sopra elencate): sostituire con il "
+     "serramento realmente previsto dal capitolato", 'm2', 305.47),
+    ('serramenti_esterni', '__FALLBACK_NO_DIM__', '1C.21.100.0010.b (stima a corpo)',
+     "Finestra con dimensioni non rilevate: prezzo indicativo a corpo stimato da un serramento medio "
+     "di circa 1,4 m² in PVC (1C.21.100.0010.b, € 201,67/m² x 1,4 m²) — da correggere appena "
+     "disponibili le misure reali", 'cad', 282.34),
+    ('porte_interne', 'Porta tamburata laminata standard', '1C.21.200.0010.a',
+     "Porta interna a battente a un'anta, tamburata con struttura a nido d'ape, rivestita in medium "
+     "density laccato, dimensioni standard (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. "
+     "1C.21.200.0010.a)", 'cad', 455.93),
+    ('porte_interne', 'Porta tamburata laccata', '1C.21.200.0060.a',
+     "Portoncino d'ingresso interno a battente a un'anta, tamburato, rivestito in medium density "
+     "laccato, misure standard 90-100x210-220 (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, "
+     "art. 1C.21.200.0060.a)", 'cad', 431.16),
+    ('porte_interne', 'Porta in legno massello', '1C.21.200.0010.c',
+     "Porta interna a battente a un'anta, tamburata con struttura a nido d'ape, rivestita in rovere "
+     "lucidato, dimensioni standard (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. "
+     "1C.21.200.0010.c)", 'cad', 730.07),
+    ('porte_interne', 'Porta rasomuro (a filo muro, a scomparsa)', '1C.21.250.0010.a + 1C.21.250.0050.a',
+     "Kit porta scorrevole a scomparsa: telaio in lamiera zincata da murare (1C.21.250.0010.a, € "
+     "349,17, luce 70x200-210) + anta scorrevole tamburata rifinita (1C.21.250.0050.a, € 523,84) — il "
+     "Prezzario regionale non censisce una voce 'rasomuro a filo muro' in senso stretto: usata come "
+     "riferimento più vicino la porta scorrevole a scomparsa completa (somma di due voci ufficiali, "
+     "vol. 1.1)", 'cad', 873.01),
+    ('porte_interne', 'Altro (specificare a parte)', 'RIF-POR-99',
+     "Riferimento generico (media indicativa delle voci ufficiali sopra elencate): sostituire con la "
+     "porta realmente prevista dal capitolato", 'cad', 622.54),
+    ('impianto_elettrico', 'Standard (normativa base)', 'PLC-ELE-01',
+     "Punto impianto elettrico standard per vano (normativa base) — voce non utilizzata nel calcolo "
+     "attuale del computo (gli impianti sono computati con un'unica voce a corpo, categoria "
+     "'impianti_a_corpo'), mantenuta per compatibilità del capitolato", 'cad', 450.0),
+    ('impianto_elettrico', 'Predisposizione domotica', 'PLC-ELE-02',
+     "Punto impianto elettrico con predisposizione domotica per vano — voce non utilizzata nel "
+     "calcolo attuale del computo, mantenuta per compatibilità del capitolato", 'cad', 650.0),
+    ('impianto_elettrico', 'Domotica completa', 'PLC-ELE-03',
+     "Punto impianto elettrico con domotica completa per vano — voce non utilizzata nel calcolo "
+     "attuale del computo, mantenuta per compatibilità del capitolato", 'cad', 1200.0),
+    ('impianto_elettrico', 'Altro (specificare a parte)', 'PLC-ELE-99',
+     "Impianto elettrico — tipologia da definire — voce non utilizzata nel calcolo attuale del "
+     "computo", 'cad', 500.0),
+    ('impianto_idrico', 'Sanitari e rubinetteria standard', 'PLC-IDR-01',
+     "Sanitari e rubinetteria standard per vano — voce non utilizzata nel calcolo attuale del "
+     "computo, mantenuta per compatibilità del capitolato", 'cad', 600.0),
+    ('impianto_idrico', 'Fascia media', 'PLC-IDR-02',
+     "Sanitari e rubinetteria fascia media per vano — voce non utilizzata nel calcolo attuale del "
+     "computo", 'cad', 900.0),
+    ('impianto_idrico', 'Fascia alta', 'PLC-IDR-03',
+     "Sanitari e rubinetteria fascia alta per vano — voce non utilizzata nel calcolo attuale del "
+     "computo", 'cad', 1500.0),
+    ('impianto_idrico', 'Altro (specificare a parte)', 'PLC-IDR-99',
+     "Impianto idrico — tipologia da definire — voce non utilizzata nel calcolo attuale del computo", 'cad', 700.0),
+    ('scavi', 'standard', '1C.02.100.0040.a',
+     "Scavo a sezione obbligata a pareti verticali, eseguito a macchina fino a 3,00 m di profondità, "
+     "con carico e deposito delle terre nell'ambito del cantiere (fonte: Prezzario Regione Lombardia "
+     "2022, vol. 1.1, art. 1C.02.100.0040.a)", 'm3', 10.51),
+    ('scavi', 'piscina', '1C.02.100.0050.a',
+     "Scavo a sezione obbligata a pareti verticali, eseguito a macchina per profondità superiore a "
+     "3,00 m, con carico e deposito delle terre nell'ambito del cantiere (fonte: Prezzario Regione "
+     "Lombardia 2022, vol. 1.1, art. 1C.02.100.0050.a)", 'm3', 12.6),
+    ('strutture_cls', 'standard', '1C.04.020.0040.a',
+     "Strutture (pilastri, travi, correnti, solette, murature di vani scala/ascensore) realizzate con "
+     "getto di calcestruzzo preconfezionato a prestazione garantita, classe C25/30-XC1/XC2, esclusi "
+     "ferro e casseri (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.04.020.0040.a)", 'm3', 178.97),
+    ('strutture_cls', 'casseforme', '1C.04.400.0020.c',
+     "Casseforme per getti in calcestruzzo con tavole di abete, per strutture in c.a., muri scala ed "
+     "ascensore di qualsiasi spessore, solette piene (fonte: Prezzario Regione Lombardia 2022, vol. "
+     "1.1, art. 1C.04.400.0020.c)", 'm2', 45.88),
+    ('strutture_ferro', 'standard', '1C.04.450.0010.a',
+     "Acciaio tondo in barre nervate B450C per cemento armato, rispondente ai CAM, in opera compresa "
+     "lavorazione, posa, sormonti, sfrido, legature (fonte: Prezzario Regione Lombardia 2022, vol. "
+     "1.1, art. 1C.04.450.0010.a)", 'kg', 1.79),
+    ('spinottature', 'standard', 'RIF-SPI-01',
+     "Ripresa dei getti e spinottature per il collegamento tra elementi strutturali gettati in tempi "
+     "diversi — voce non censita puntualmente nel Prezzario 2022 come articolo a sé: quantità e "
+     "prezzo dipendono dal progetto strutturale esecutivo, da misurare e valorizzare a mano", 'n.', 0.0),
+    ('strutture_muratura', 'standard', '1C.06.050.0010.a',
+     "Muratura portante in fondazione o elevazione di mattoni pieni, malta tradizionale "
+     "(conducibilità termica 0,55 W/mK), secondo NTC 2018 (fonte: Prezzario Regione Lombardia 2022, "
+     "vol. 1.1, art. 1C.06.050.0010.a)", 'm3', 375.54),
+    ('copertura', 'Tetto a falde, manto in laterizio', '1C.11.030.0010.b',
+     "Copertura completa di orditura in legno (grossa e piccola orditura su capriate) e manto in "
+     "tegole a canale (coppi) (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. "
+     "1C.11.030.0010.b)", 'm2', 108.55),
+    ('copertura', 'Tetto a falde, manto in cemento', '1C.11.030.0010.c',
+     "Copertura completa di orditura in legno (grossa e piccola orditura su capriate) e manto in "
+     "lastre cementizie fibrorinforzate ondulate, spessore 7 mm (fonte: Prezzario Regione Lombardia "
+     "2022, vol. 1.1, art. 1C.11.030.0010.c)", 'm2', 81.58),
+    ('copertura', 'Copertura piana con guaina bituminosa', '1C.13.160.0020',
+     "Manto impermeabile bituminoso per coperture pedonabili, membrana elastoplastomerica 4 mm, "
+     "biarmata, resistente ai raggi UV, saldata a fiamma — non include la struttura portante (solaio "
+     "piano, già computato separatamente) (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. "
+     "1C.13.160.0020)", 'm2', 25.64),
+    ('copertura', 'Copertura metallica', '1C.11.140.0010.d',
+     "Copertura di tetto con lastre in lamiera grecata di acciaio zincato, spessore 6/10 mm, colore "
+     "naturale — non include l'orditura portante metallica, da computare separatamente se non già "
+     "prevista (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.11.140.0010.d)", 'm2', 23.14),
+    ('copertura', 'Altro (specificare a parte)', 'RIF-COP-99',
+     "Riferimento generico (media indicativa delle voci ufficiali sopra elencate): sostituire con la "
+     "copertura realmente prevista dal capitolato", 'm2', 59.73),
+    ('demolizioni', 'pavimento', '1C.01.100.0010.a',
+     "Demolizione di pavimenti interni in piastrelle di cemento, ceramica o cotto con relativa malta "
+     "di allettamento, incluso carico e trasporto delle macerie (esclusi oneri di smaltimento) "
+     "(fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.01.100.0010.a)", 'm2', 9.79),
+    ('demolizioni', 'intonaco', '1C.01.090.0020.a',
+     "Scrostamento di intonaco interno o esterno, di qualsiasi tipo, in buono stato di conservazione, "
+     "incluso carico e trasporto delle macerie (esclusi oneri di smaltimento) (fonte: Prezzario "
+     "Regione Lombardia 2022, vol. 1.1, art. 1C.01.090.0020.a)", 'm2', 12.64),
+    ('fondazioni', 'magrone', '1C.04.020.0010.a',
+     "Sottofondazioni realizzate con getto di calcestruzzo preconfezionato a prestazione garantita, "
+     "classe C16/20 (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.04.020.0010.a)", 'm3', 132.36),
+    ('fondazioni', 'standard', '1C.04.020.0020.a',
+     "Fondazioni (plinti, travi rovesce, platee) realizzate con getto di calcestruzzo preconfezionato "
+     "a prestazione garantita, classe C25/30-XC1/XC2, esclusi ferro e casseri (fonte: Prezzario "
+     "Regione Lombardia 2022, vol. 1.1, art. 1C.04.020.0020.a)", 'm3', 154.47),
+    ('fondazioni', 'casseforme', '1C.04.400.0010.a',
+     "Casseforme per getti in calcestruzzo con pannelli di legno lamellare, per fondazioni, plinti, "
+     "travi rovesce, platee (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. "
+     "1C.04.400.0010.a)", 'm2', 17.58),
+    ('fondazioni', 'acciaio', '1C.04.450.0010.a',
+     "Acciaio tondo in barre nervate B450C per cemento armato, in opera (fonte: Prezzario Regione "
+     "Lombardia 2022, vol. 1.1, art. 1C.04.450.0010.a)", 'kg', 1.79),
+    ('cantiere', 'approntamento', 'RIF-CNT-01',
+     "Approntamento e allestimento del cantiere edile (recinzione, baraccamenti, impianti provvisori "
+     "di cantiere) — il Prezzario Regione Lombardia 2022 tratta i costi di cantierizzazione in modo "
+     "analitico nel capitolo 1S (Costi della sicurezza) anziché con una voce unica a corpo: il prezzo "
+     "qui riportato viene comunque sempre sostituito dal parametro utente 'Costo di approntamento del "
+     "cantiere'", 'corpo', 1.0),
+    ('cantiere', 'bagno_chimico', 'RIF-CNT-02',
+     "Nolo di bagno chimico da cantiere per l'intera durata dei lavori — non censito come voce unica "
+     "a corpo nel Prezzario 2022; il prezzo qui riportato viene comunque sempre sostituito dal "
+     "parametro utente 'Costo del nolo bagno chimico'", 'corpo', 1.0),
+    ('cantiere', 'gru', 'RIF-CNT-03',
+     "Nolo di gru da cantiere per l'intera durata dei lavori — non censito come voce unica a corpo "
+     "nel Prezzario 2022; il prezzo qui riportato viene comunque sempre sostituito dal parametro "
+     "utente 'Costo del nolo gru'", 'corpo', 1.0),
+    ('assistenza_muraria', 'serramenti', 'RIF-ASM-SER-01',
+     "Assistenza muraria per la posa dei serramenti esterni — nel Prezzario Regione Lombardia 2022 "
+     "questa assistenza è normalmente GIA' INCLUSA nel prezzo di fornitura e posa dei serramenti "
+     "stessi (vedi voci della categoria 'serramenti_esterni'): usa questa riga separata solo se nel "
+     "tuo capitolato la posa è scorporata dalla fornitura", 'm2', 25.0),
+    ('assistenza_muraria', 'porte', 'RIF-ASM-POR-01',
+     "Assistenza muraria per la posa delle porte interne — nel Prezzario Regione Lombardia 2022 "
+     "questa assistenza è normalmente GIA' INCLUSA nel prezzo di fornitura e posa delle porte stesse "
+     "(vedi voci della categoria 'porte_interne'): usa questa riga separata solo se nel tuo "
+     "capitolato la posa è scorporata dalla fornitura", 'cad', 45.0),
+    ('assistenza_muraria', 'elettrico', '1C.28.200.0010.a',
+     "Assistenza muraria per l'esecuzione dell'impianto elettrico (nuove costruzioni), in percentuale "
+     "sul costo dell'impianto — il prezzo qui riportato viene comunque sempre sostituito dal "
+     "parametro utente 'Incidenza assistenza muraria elettrico' (fonte: Prezzario Regione Lombardia "
+     "2022, vol. 1.1, art. 1C.28.200.0010.a)", '%', 15.0),
+    ('assistenza_muraria', 'idraulico', '1C.28.100.0010.a',
+     "Assistenza muraria per l'esecuzione degli impianti meccanici (nuove costruzioni), in "
+     "percentuale sul costo dell'impianto — il prezzo qui riportato viene comunque sempre sostituito "
+     "dal parametro utente 'Incidenza assistenza muraria idraulico' (fonte: Prezzario Regione "
+     "Lombardia 2022, vol. 1.1, art. 1C.28.100.0010.a)", '%', 15.0),
+    ('solai', 'standard', '1C.05.050.0010.d',
+     "Solaio piano in cemento armato e blocchi in laterizio a nervature parallele, gettato in opera, "
+     "altezza totale 25 cm (20 laterizio + 5 soletta), escluso il ferro tondo di armatura (fonte: "
+     "Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.05.050.0010.d)", 'm2', 66.09),
+    ('solai', 'casseforme', '1C.04.400.0010.c',
+     "Casseforme per getti in calcestruzzo con pannelli di legno lamellare, orizzontali per solette "
+     "piene (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.04.400.0010.c)", 'm2', 22.86),
+    ('solai', 'calcestruzzo', '1C.04.020.0040.a',
+     "Getto di calcestruzzo preconfezionato a prestazione garantita per solette, classe "
+     "C25/30-XC1/XC2, esclusi ferro e casseri (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, "
+     "art. 1C.04.020.0040.a)", 'm3', 178.97),
+    ('solai', 'acciaio', '1C.04.450.0010.a',
+     "Acciaio tondo in barre nervate B450C per cemento armato, in opera (fonte: Prezzario Regione "
+     "Lombardia 2022, vol. 1.1, art. 1C.04.450.0010.a)", 'kg', 1.79),
+    ('vespaio', 'standard', '1C.05.500.0020.b',
+     "Vespaio aerato con elementi in plastica a perdere, altezza 25-30 cm, sottofondo in calcestruzzo "
+     "C16/20 e soletta superiore C25/30 (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. "
+     "1C.05.500.0020.b)", 'm2', 37.19),
+    ('contropareti', 'standard', '1C.06.550.0050',
+     "Controparete in lastre di gesso rivestito a bordi assottigliati, spessore 13 mm, applicata "
+     "direttamente alla parete con incollaggio in gesso (fonte: Prezzario Regione Lombardia 2022, "
+     "vol. 1.1, art. 1C.06.550.0050)", 'm2', 22.53),
+    ('pareti_divisorie', 'Muratura in laterizio forato', '1C.06.070.0100.b',
+     "Tavolati in mattoni forati 8x12x24 cm, con malta cementizia o bastarda, spessore 12 cm (fonte: "
+     "Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.06.070.0100.b)", 'm2', 30.61),
+    ('pareti_divisorie', 'Cartongesso su orditura metallica', '1C.06.560.0050.a',
+     "Parete in lastre di gesso rivestito a bordi assottigliati sulle due facce, orditura in "
+     "profilati di acciaio zincato, montanti a interasse 60 cm, una lastra da 13 mm per faccia "
+     "(fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.06.560.0050.a)", 'm2', 34.11),
+    ('pareti_divisorie', 'Altro (specificare a parte)', 'RIF-PDV-99',
+     "Riferimento generico (media indicativa delle voci ufficiali sopra elencate): sostituire con la "
+     "parete realmente prevista dal capitolato", 'm2', 32.36),
+    ('velette', 'standard', '1C.20.050.0040.a',
+     "Velette e incassettature con lastre lisce in gesso rasate, spessore 15 mm — quantità e sviluppo "
+     "lineare non desumibili dalla sola pianta: misura e valorizza a mano (fonte: Prezzario Regione "
+     "Lombardia 2022, vol. 1.1, art. 1C.20.050.0040.a)", 'm2', 37.18),
+    ('controsoffitti', 'standard', '1C.20.050.0010.a',
+     "Controsoffitto in pannelli di gesso 600x600x22 mm, orditura a vista, superficie liscia (fonte: "
+     "Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.20.050.0010.a)", 'm2', 33.02),
+    ('acustica', 'materiale_generico', 'RIF-ACU-01',
+     "Materiale/lavorazione per requisiti acustici individuato nella relazione acustica caricata — "
+     "voce generica non censita puntualmente nel Prezzario 2022 (il materiale specifico varia caso "
+     "per caso): misura e valorizza a mano in base al prodotto indicato nella relazione", 'corpo', 0.0),
+    ('cappotto_termico', 'EPS/polistirene', '1C.10.300.0020 (80mm+4x10mm)',
+     "Sistema per isolamento termico a cappotto in polistirene espanso sinterizzato, spessore 120 mm "
+     "(80 mm base € 65,09/m² + 4x10mm extra a € 1,21/m²), rasatura armata in fibra di vetro, finitura "
+     "esclusa (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.10.300.0020)", 'm2', 69.93),
+    ('cappotto_termico', 'Lana di roccia', '1C.10.300.0030 (60mm+6x10mm)',
+     "Sistema per isolamento termico a cappotto in pannelli rigidi di lana di roccia, spessore 120 mm "
+     "(60 mm base € 54,36/m² + 6x10mm extra a € 1,66/m²), rasatura armata in fibra di vetro, finitura "
+     "esclusa (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.10.300.0030)", 'm2', 64.32),
+    ('cappotto_termico', 'Fibra di legno', '1C.10.300.0040 (60mm+6x10mm, adattata)',
+     "Il Prezzario Regione Lombardia 2022 non censisce una voce a cappotto in fibra di legno: usato "
+     "come riferimento più simile il sistema a cappotto in pannelli di lana di vetro ad alta densità, "
+     "spessore 120 mm (60 mm base € 55,21/m² + 6x10mm extra a € 1,86/m²) — il costo reale della fibra "
+     "di legno è tipicamente superiore, verifica e correggi (fonte: Prezzario Regione Lombardia 2022, "
+     "vol. 1.1, art. 1C.10.300.0040)", 'm2', 66.37),
+    ('cappotto_termico', 'Altro (specificare a parte)', 'RIF-CAP-99',
+     "Riferimento generico (media indicativa delle voci ufficiali sopra elencate): sostituire con il "
+     "materiale realmente previsto dal capitolato", 'm2', 66.87),
+    ('impermeabilizzazioni', 'standard', '1C.13.160.0010',
+     "Barriera al vapore per sistemi impermeabili posati a freddo con adesivo bituminoso, membrana "
+     "2,5 mm, applicata a fiamma (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. "
+     "1C.13.160.0010)", 'm2', 11.78),
+    ('impermeabilizzazioni', 'piscina', '1C.13.160.0020',
+     "Manto impermeabile bituminoso per coperture/vasche pedonabili, membrana elastoplastomerica 4 "
+     "mm, biarmata, resistente ai raggi UV, saldata a fiamma (fonte: Prezzario Regione Lombardia "
+     "2022, vol. 1.1, art. 1C.13.160.0020)", 'm2', 25.64),
+    ('piscina_vasca', 'standard', '1C.04.030.0020.a (sp. 20cm) + 1U.07.150.0010.a',
+     "Vasca strutturale: calcestruzzo armato autocompattante SCC C25/30 per murature armate "
+     "entro/fuori terra (1C.04.030.0020.a, € 182,28/m³, ipotesi spessore parete/fondo 20 cm = € "
+     "36,46/m²) + rivestimento interno vasca (fondo e pareti) in piastrelle di gres ceramico "
+     "(1U.07.150.0010.a, € 43,37/m²) — somma di due voci ufficiali del Prezzario Regione Lombardia "
+     "2022; lo spessore di 20 cm è un'ipotesi corrente per vasche residenziali, da verificare col "
+     "progetto strutturale", 'm2', 79.83),
+    ('piscina_bordo', 'standard', '1C.18.300.0010.a',
+     "Bordo perimetrale piscina in pavimento di piastrelle di granito Bianco Sardo, lastre calibrate "
+     "e lucidate, formato piccolo (0,05-0,12 m², spessore 10 mm) (fonte: Prezzario Regione Lombardia "
+     "2022, vol. 1.1, art. 1C.18.300.0010.a)", 'm2', 64.38),
+    ('scala_esterna', 'standard', 'RIF-SCE-01',
+     "Scala esterna — individuata come possibile presenza in pianta ma non quotata in modo misurabile "
+     "automaticamente: non censita come voce unica nel Prezzario 2022 (dipende da materiale, numero "
+     "gradini, rivestimento); misura e valorizza a mano", 'corpo', 0.0),
+    ('scale_interne', 'standard', 'RIF_SCI-01',
+     "Scale interne — collegano i piani dell'edificio, non quotate in modo misurabile automaticamente "
+     "dalla sola pianta caricata; non censite come voce unica nel Prezzario 2022 (dipende da "
+     "materiale, numero gradini, rivestimento); misura e valorizza a mano", 'corpo', 0.0),
+    ('opere_esterne', 'recinzione', '1C.22.450.0010.a',
+     "Recinzione in rete elettrosaldata zincata e plasticata, pali e saette in profilati a T 30x30x4 "
+     "mm — non rappresentata nella pianta di progetto: misura lo sviluppo reale dalla planimetria "
+     "generale (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.22.450.0010.a)", 'm2', 17.36),
+    ('opere_esterne', 'smaltimento_acque', 'RIF-OES-SMA-01',
+     "Reti di smaltimento acque bianche/nere e cavidotti elettrici esterni — non rappresentate nella "
+     "pianta di progetto: dipendono dalla planimetria generale e dalla rete sottoservizi, valorizza a "
+     "mano", 'corpo', 0.0),
+    ('opere_esterne', 'pavimentazioni_esterne', 'RIF-OES-PAV-01',
+     "Pavimentazioni esterne (vialetti, terrazze a terra) — non quantificabili in modo affidabile "
+     "dalla sola pianta architettonica: misura e valorizza a mano", 'm2', 0.0),
+    ('opere_esterne', 'camerette_ispezione', 'RIF-OES-CAM-01',
+     "Camerette di ispezione per reti sottoservizi — non rappresentate nella pianta di progetto: "
+     "conta e valorizza a mano dalla planimetria generale/rete sottoservizi", 'n.', 0.0),
+    ('opere_esterne', 'pozzo_perdente', 'RIF-OES-POZ-01',
+     "Pozzo perdente per smaltimento acque meteoriche/reflue nel sottosuolo — presenza e numero "
+     "dipendono dalla rete sottoservizi e dalla planimetria generale: verifica e valorizza a mano", 'n.', 0.0),
+    ('lattonerie', 'standard', '1C.14.050.0010.a',
+     "Canali di gronda, pluviali, converse e scossaline in lamiera zincata spessore 0,6 mm, lavorati "
+     "con sagome e sviluppi normali — lo sviluppo lineare reale non è desumibile dalla sola "
+     "superficie di copertura: misura e valorizza a mano da prospetti/sezioni quotate (fonte: "
+     "Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.14.050.0010.a)", 'kg', 9.28),
+    ('soglie_davanzali', 'standard', '1C.15.310.0020.a',
+     "Davanzali e soglie in cemento decorativo gettato fuori opera, superficie a vista raschiata, "
+     "sezione fino a 100 cm² — quali aperture li richiedono non è deducibile in automatico: verifica "
+     "e valorizza a mano (fonte: Prezzario Regione Lombardia 2022, vol. 1.1, art. 1C.15.310.0020.a)", 'ml', 49.81),
+    ('rivestimento_facciata', 'standard', '1C.06.100.0050.a (adattata)',
+     "Rivestimento/muratura faccia a vista con mattoni pieni tipo 'a mano', spessore 12 cm — usato "
+     "come riferimento più vicino per un rivestimento di facciata in laterizio/klinker a vista; il "
+     "materiale specifico (pietra naturale o ricostruita, klinker, doghe) individuato nel render va "
+     "sempre confermato e il prezzo corretto di conseguenza (fonte: Prezzario Regione Lombardia 2022, "
+     "vol. 1.1, art. 1C.06.100.0050.a)", 'm²', 68.42),
+    ('impianti_a_corpo', 'standard', 'RIF-IMP-CORPO-01',
+     "Impianti (elettrico, idrico-sanitario, termico/climatizzazione), stima a corpo come percentuale "
+     "indicativa del resto del computo — il Prezzario Regione Lombardia 2022 non prevede un'unica "
+     "voce a corpo per 'tutti gli impianti' (li tratta analiticamente nei capitoli 1E e 1M): il "
+     "prezzo qui riportato viene comunque sempre sostituito dal calcolo percentuale sul subtotale "
+     "delle altre lavorazioni", 'a corpo', 0.0),
 ]
 
 # Impronta del contenuto di PLACEHOLDER_VOCI: il database dei prezzari vive su un
@@ -401,3 +384,20 @@ PLACEHOLDER_VOCI = [
 # ad ogni modifica della lista qui sopra: non va aggiornata a mano.
 import hashlib as _hashlib
 PLACEHOLDER_SEED_VERSION = _hashlib.sha256(repr(PLACEHOLDER_VOCI).encode("utf-8")).hexdigest()[:16]
+
+# Vocabolario di riferimento delle coppie (categoria, sotto_tipo) che il motore di
+# calcolo (prezzario/matching.py) sa effettivamente cercare: usato per avvisare
+# l'utente al momento del caricamento di un prezzario reale (CSV) se le sue righe
+# non useranno MAI nessuna voce (perché categoria/sotto_tipo sono valori interni
+# fissi, non nomi liberi — non basta che le colonne del CSV si chiamino giusto,
+# devono combaciare anche i VALORI). Non è un elenco esaustivo assoluto (alcuni
+# sotto_tipo derivano dalle risposte al capitolato e in teoria potrebbero essere
+# personalizzati), ma copre tutte le combinazioni realmente previste da questa
+# versione del sistema, quindi un CSV reale dovrebbe avvicinarsi a questo insieme.
+REFERENCE_CATEGORIA_SOTTOTIPO = {(cat, sotto) for cat, sotto, *_ in PLACEHOLDER_VOCI}
+
+# Le due uniche voci che il sistema tenta di aggiungere SEMPRE, indipendentemente
+# da qualunque dato geometrico (vedi il commento in matching.py/build_computo):
+# se un prezzario non le contiene ED è anche privo di corrispondenze per tutto il
+# resto, il computo risulta interamente vuoto.
+VOCI_SEMPRE_TENTATE = {("cantiere", "approntamento"), ("cantiere", "bagno_chimico")}

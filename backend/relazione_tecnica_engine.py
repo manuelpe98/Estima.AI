@@ -16,13 +16,15 @@ mostrato integralmente come riferimento di lettura per l'utente.
 from __future__ import annotations
 import fitz
 
-MAX_CARATTERI_TESTO = 20000
-
 
 def extract_relazione_tecnica(pdf_paths: list[str]) -> dict:
-    """Estrae il testo integrale (fino a un limite) dei PDF forniti, per essere
-    mostrato come riferimento di lettura. Ritorna sempre una struttura valida
-    anche se non si trova nulla (es. PDF scansionato senza testo)."""
+    """Estrae il testo integrale dei PDF forniti, per essere mostrato per
+    intero come riferimento di lettura (nessun limite di lunghezza: è solo
+    testo passato al frontend, non un prompt AI, quindi non c'è un costo da
+    contenere — troncarlo nasconderebbe proprio le parti finali di relazioni
+    lunghe, che sono spesso le più rilevanti, es. capitolato e finiture).
+    Ritorna sempre una struttura valida anche se non si trova nulla (es. PDF
+    scansionato senza testo)."""
     all_text_parts: list[str] = []
     pagine_senza_testo = 0
     pagine_totali = 0
@@ -41,9 +43,6 @@ def extract_relazione_tecnica(pdf_paths: list[str]) -> dict:
         doc.close()
 
     testo_completo = "\n\n".join(all_text_parts)
-    troncato = len(testo_completo) > MAX_CARATTERI_TESTO
-    if troncato:
-        testo_completo = testo_completo[:MAX_CARATTERI_TESTO]
 
     note = []
     if pagine_totali == 0:
@@ -53,11 +52,6 @@ def extract_relazione_tecnica(pdf_paths: list[str]) -> dict:
             "Il documento della relazione tecnica caricato non contiene testo estraibile (probabilmente una "
             "scansione/immagine): non è stato possibile mostrarne il contenuto come riferimento testuale. "
             "Consulta il documento originale a parte."
-        )
-    elif troncato:
-        note.append(
-            f"Il testo della relazione tecnica è stato troncato ai primi {MAX_CARATTERI_TESTO} caratteri per "
-            "la sola visualizzazione di riferimento: il documento originale caricato è comunque completo."
         )
 
     return {

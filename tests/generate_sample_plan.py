@@ -17,7 +17,7 @@ Quantità reali note (usate dalle asserzioni in test_pipeline.py):
   Pilastri PL1 x4, sezione 30x30 cm | Travi TR1 x4, sezione 30x50 cm
 """
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 
 SCALE = 100
 PT_PER_M = 1000 / ((25.4 / 72) * SCALE)
@@ -157,9 +157,48 @@ def build_roof_plan(path: str):
     c.save()
 
 
+def build_multi_plan(path: str):
+    """Tavola con DUE piani affiancati sullo stesso foglio (piano terra +
+    piano primo), come nella prassi professionale segnalata da Franco: serve
+    a testare che il rilievo assegni ogni vano al piano giusto e che il
+    sedime/perimetro vengano calcolati SOLO dal piano terra, non dalla somma
+    di entrambi i piani (che varrebbe quasi il doppio del sedime reale).
+
+    Piano terra (SOGGIORNO 5x4 + CUCINA 3x4 affiancate): rettangolo unito
+    8x4 m -> area 32 m2, perimetro 24 m.
+    Piano primo (CAMERA 5x3.5 + BAGNO 3x3.5 affiancate): rettangolo unito
+    8x3.5 m -> area 28 m2, perimetro 23 m (diverso apposta dal piano terra,
+    per verificare che il sedime usi SOLO il piano terra e non la somma
+    28+32=60 né una media)."""
+    c = canvas.Canvas(path, pagesize=landscape(A4))
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(80, 500, "TAVOLA ARCHITETTONICA - PIANTE PIANO TERRA E PIANO PRIMO")
+    c.setFont("Helvetica", 10)
+    c.drawString(80, 485, "SCALA 1:100")
+
+    origin_terra = (80, 120)
+    origin_primo = (80 + 9 * PT_PER_M, 120)
+
+    px, py = m2pt(4, 4, origin_terra)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(px, py + 14, "PIANO TERRA")
+    draw_room(c, 0, 0, 5, 4, "SOGGIORNO", ("500", "400"), origin=origin_terra)
+    draw_room(c, 5, 0, 3, 4, "CUCINA", ("300", "400"), origin=origin_terra)
+
+    px, py = m2pt(4, 3.5, origin_primo)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(px, py + 14, "PIANO PRIMO")
+    draw_room(c, 0, 0, 5, 3.5, "CAMERA", ("500", "350"), origin=origin_primo)
+    draw_room(c, 5, 0, 3, 3.5, "BAGNO", ("300", "350"), origin=origin_primo)
+
+    c.save()
+
+
 if __name__ == "__main__":
     build_architectural_plan("tests/sample_plan.pdf", include_ripostiglio=False)
     build_architectural_plan("tests/sample_plan_sdf.pdf", include_ripostiglio=True)
     build_structural_plan("tests/sample_strutturale.pdf")
     build_roof_plan("tests/sample_copertura.pdf")
-    print("Creati: sample_plan.pdf, sample_plan_sdf.pdf, sample_strutturale.pdf, sample_copertura.pdf")
+    build_multi_plan("tests/sample_multi_plan.pdf")
+    print("Creati: sample_plan.pdf, sample_plan_sdf.pdf, sample_strutturale.pdf, sample_copertura.pdf, "
+          "sample_multi_plan.pdf")

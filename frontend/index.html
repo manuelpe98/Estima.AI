@@ -69,7 +69,7 @@
 <body>
 <h1>Computo Metrico Estimativo — generazione automatica (MVP)</h1>
 <p><small class="hint">Copre finiture, strutture in elevazione, scavi e copertura. Per una ristrutturazione confronta
-stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, non ufficiale.</small></p>
+stato di fatto e stato di progetto. Prezzario di default: selezione di riferimento tratta dal Prezzario Regione Lombardia 2022 (ufficiale, non sostituisce un prezzario di progetto specifico).</small></p>
 
 <section id="step0">
   <h2>1. Tipo di intervento</h2>
@@ -233,9 +233,13 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
 
   <h3>Vani (stato di progetto)</h3>
   <table class="edit-table" id="roomsTable">
-    <thead><tr><th>Etichetta</th><th>Superficie (m²)</th><th>Perimetro (m)</th><th></th></tr></thead>
+    <thead><tr><th>Etichetta</th><th>Piano</th><th>Superficie (m²)</th><th>Perimetro (m)</th><th></th></tr></thead>
     <tbody></tbody>
   </table>
+  <small class="hint">La colonna "Piano" si popola solo se la tavola caricata contiene più piante affiancate sullo
+  stesso foglio (es. piano terra + piano primo): il sistema assegna ogni vano al titolo di piano scritto più vicino
+  sulla pagina — verifica che l'assegnazione sia corretta, specialmente per vani vicini al confine tra due
+  piante.</small>
   <button type="button" class="secondary small-add" id="btnAddRoom">+ Aggiungi vano</button>
 
   <h3>Aperture (porte e finestre)</h3>
@@ -279,11 +283,12 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
 
   <label>Prezzario di riferimento</label>
   <select id="prezzarioSelect"></select>
-  <small class="hint">Se non carichi un prezzario, viene usato quello di esempio (placeholder, non ufficiale).</small>
+  <small class="hint">Se non carichi un prezzario, viene usato come riferimento il Prezzario Regione Lombardia 2022 (selezione curata delle voci ufficiali). Controlla sempre quale prezzario è selezionato qui prima di calcolare le voci: se resta selezionato per errore un prezzario di prova incompatibile, il computo può risultare vuoto.</small>
 
   <details style="margin-top:.6rem">
     <summary>Carica un prezzario reale (CSV)</summary>
     <label>File CSV (colonne: categoria, sotto_tipo, codice, descrizione, unita_misura, prezzo)</label>
+    <small class="hint">IMPORTANTE: 'categoria' e 'sotto_tipo' non sono etichette libere a scelta. Devono contenere esattamente gli stessi valori interni usati dal sistema per riconoscere le lavorazioni (es. categoria "cantiere", sotto_tipo "approntamento"): un CSV con nomi diversi viene caricato correttamente ma non produce nessuna voce nel computo. Dopo il caricamento controlla l'avviso che compare qui sotto.</small>
     <input type="file" id="prezzarioFile" accept=".csv" />
     <label>Regione</label><input type="text" id="prezzarioRegione" value="Lombardia" />
     <label>Anno</label><input type="number" id="prezzarioAnno" value="2026" />
@@ -504,19 +509,20 @@ function renderRoomsTable() {
   currentRooms.forEach((r, i) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td><input type="text" value="${(r.label||"").replace(/"/g,'&quot;')}" data-f="label"></td>
+      <td><input type="text" value="${(r.piano||"").replace(/"/g,'&quot;')}" data-f="piano" placeholder="-"></td>
       <td><input type="number" step="0.01" value="${r.area_m2 ?? 0}" data-f="area_m2"></td>
       <td><input type="number" step="0.01" value="${r.perimeter_m ?? 0}" data-f="perimeter_m"></td>
       <td><button type="button" class="small">×</button></td>`;
     tr.querySelectorAll("input").forEach(inp => inp.onchange = () => {
       const f = inp.dataset.f;
-      currentRooms[i][f] = f === "label" ? inp.value : parseFloat(inp.value) || 0;
+      currentRooms[i][f] = (f === "label" || f === "piano") ? inp.value : parseFloat(inp.value) || 0;
     });
     tr.querySelector("button").onclick = () => { currentRooms.splice(i, 1); renderRoomsTable(); };
     tbody.appendChild(tr);
   });
 }
 document.getElementById("btnAddRoom").onclick = () => {
-  currentRooms.push({ label: "NUOVO VANO", area_m2: 0, perimeter_m: 0, source: "aggiunto manualmente" });
+  currentRooms.push({ label: "NUOVO VANO", piano: "", area_m2: 0, perimeter_m: 0, source: "aggiunto manualmente" });
   renderRoomsTable();
 };
 
@@ -1015,17 +1021,37 @@ document.getElementById("btnConfirmVani").onclick = () => {
   document.getElementById("step2").scrollIntoView({ behavior: "smooth" });
 };
 
-async function loadPrezzari() {
+async function loadPrezzari(preferId) {
+  // Selezione di default: MAI affidarsi al primo elemento del menu (che senza
+  // un criterio esplicito finirebbe per essere semplicemente il prezzario
+  // caricato più di recente, incluso un CSV di prova incompatibile con le
+  // categorie riconosciute dal sistema, con il rischio di un computo vuoto
+  // senza che l'utente se ne accorga). Priorità: 1) preferId, se passato
+  // esplicitamente (es. appena dopo un caricamento riuscito); 2) il prezzario
+  // già selezionato in precedenza in questa sessione, se ancora presente in
+  // elenco; 3) il prezzario di riferimento predefinito (Regione Lombardia 2022);
+  // 4) il primo dell'elenco, solo come ultima risorsa.
   const res = await fetch(`${API}/api/prezzari`);
   const list = await res.json();
   const sel = document.getElementById("prezzarioSelect");
+  const valorePrecedente = sel.value;
   sel.innerHTML = "";
   list.forEach(p => {
     const opt = document.createElement("option");
     opt.value = p.id;
-    opt.textContent = `${p.nome} (${p.regione}, ${p.anno})${p.is_placeholder ? " — ESEMPIO" : ""}`;
+    opt.textContent = `${p.nome} (${p.regione}, ${p.anno})${p.is_placeholder ? " — DEFAULT" : ""}`;
+    opt.dataset.placeholder = p.is_placeholder ? "1" : "";
     sel.appendChild(opt);
   });
+  const ids = list.map(p => String(p.id));
+  let daSelezionare = null;
+  if (preferId != null && ids.includes(String(preferId))) daSelezionare = String(preferId);
+  else if (valorePrecedente && ids.includes(valorePrecedente)) daSelezionare = valorePrecedente;
+  else {
+    const placeholder = list.find(p => p.is_placeholder);
+    daSelezionare = placeholder ? String(placeholder.id) : (ids[0] || null);
+  }
+  if (daSelezionare != null) sel.value = daSelezionare;
 }
 
 document.getElementById("btnUploadPrezzario").onclick = async () => {
@@ -1041,9 +1067,18 @@ document.getElementById("btnUploadPrezzario").onclick = async () => {
     const res = await fetch(`${API}/api/prezzari/upload`, { method: "POST", body: fd });
     const data = await res.json();
     if (!res.ok) throw new Error(JSON.stringify(data));
-    msgEl.textContent = `Importate ${data.voci_importate} voci.`;
-    msgEl.className = "msg ok";
-    loadPrezzari();
+    if (data.avviso) {
+      // Il CSV è comunque stato salvato (l'utente può volerlo correggere in un
+      // secondo momento), ma un avviso di questo tipo va mostrato in modo
+      // evidente: senza questo controllo l'unico segnale del problema arriva
+      // solo dopo, come un computo vuoto senza spiegazione.
+      msgEl.textContent = `Importate ${data.voci_importate} voci (${data.voci_riconosciute} riconosciute dal sistema). ⚠️ ${data.avviso}`;
+      msgEl.className = "msg err";
+    } else {
+      msgEl.textContent = `Importate ${data.voci_importate} voci, tutte riconosciute dal sistema.`;
+      msgEl.className = "msg ok";
+    }
+    loadPrezzari(data.prezzario_id);
   } catch (e) {
     msgEl.textContent = "Errore: " + e;
     msgEl.className = "msg err";

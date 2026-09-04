@@ -70,33 +70,71 @@ TAG_CODE_RE = re.compile(r"^([A-Z]{1,3})\s*0*([0-9]+)$")
 # ecc.) scritte come titolo/etichetta su una tavola: nella prassi professionale
 # è comunissimo che UNA SOLA tavola raccolga più piante (piano interrato +
 # terra + primo + copertura) affiancate sullo stesso foglio, invece di un
-# foglio per piano. Il rilievo geometrico di questo motore (_extract_rooms_impl)
-# tratta però l'INTERA pagina come un'unica pianta: se sul foglio ci sono più
-# piani, le etichette di vano di piani diversi vengono lette tutte insieme e i
-# poligoni più vicini possono essere associati al piano sbagliato (aree/
-# perimetri sballati o duplicati fra piani). Non esiste in questa versione una
-# segmentazione affidabile per piano (richiederebbe raggruppare spazialmente i
-# vani attorno a ciascun titolo "PIANO ...", rischioso da generalizzare su
-# impaginazioni molto diverse tra loro): si rileva quindi la situazione e la si
-# segnala con forza, invece di produrre numeri silenziosamente inaffidabili.
+# foglio per piano. Quando questo capita, ogni etichetta di vano viene
+# assegnata al titolo "PIANO ..." più vicino sulla pagina (vedi
+# _piano_label_positions/_extract_rooms_impl): è una segmentazione spaziale
+# euristica, non certa al 100% su impaginazioni particolarmente insolite (es.
+# titoli mancanti o molto lontani dalla pianta a cui si riferiscono), quindi il
+# chiamante segnala comunque la situazione perché venga verificata — ma non
+# tratta più l'intera pagina come un'unica pianta indistinta.
 _PIANO_LABEL_RE = re.compile(
     r"\bPIANO\s+(TERRA|PRIMO|SECONDO|TERZO|INTERRATO|SEMINTERRATO|TERRENO|RIALZATO|"
     r"AMMEZZATO|SOTTOTETTO|ATTICO|COPERTURA)\b"
 )
+# Diciture che indicano il piano a livello del terreno (base per sedime,
+# perimetro esterno e scavo): la variabilità qui è quella osservata nella
+# prassi (non tutti gli studi scrivono "PIANO TERRA").
+GROUND_FLOOR_LABELS = {"TERRA", "TERRENO", "RIALZATO"}
+
+
+def _piano_label_positions(page: "fitz.Page") -> list[tuple[str, float, float]]:
+    """Trova ogni dicitura "PIANO ..." sulla pagina insieme alla posizione
+    (centro) della riga che la contiene: serve a capire a quale gruppo di
+    vani appartiene ciascuna etichetta di vano più vicina, quando la tavola
+    contiene più piante affiancate. Si lavora per RIGA (non per singolo span
+    di testo): "PIANO" e "TERRA" possono finire in span separati nello stesso
+    rigo per via della spaziatura del font, ma restano sulla stessa riga."""
+    out: list[tuple[str, float, float]] = []
+    d = page.get_text("dict")
+    for block in d.get("blocks", []):
+        for line in block.get("lines", []):
+            spans = line.get("spans", [])
+            if not spans:
+                continue
+            joined = "".join(s["text"] for s in spans)
+            for m in _PIANO_LABEL_RE.finditer(joined.upper()):
+                etichetta = m.group(1)
+                x0 = min(s["bbox"][0] for s in spans)
+                y0 = min(s["bbox"][1] for s in spans)
+                x1 = max(s["bbox"][2] for s in spans)
+                y1 = max(s["bbox"][3] for s in spans)
+                out.append((etichetta, (x0 + x1) / 2, (y0 + y1) / 2))
+    return out
 
 
 def detect_multiple_plans_on_page(page: "fitz.Page") -> list[str]:
     """Ritorna le diciture "PIANO ..." distinte trovate sulla pagina (es.
-    ["TERRA", "PRIMO", "INTERRATO"]). Una lista con più di un elemento indica
-    che la tavola contiene probabilmente più piani affiancati sullo stesso
-    foglio: il chiamante deve segnalarlo esplicitamente all'utente."""
-    text = page.get_text("text").upper()
-    trovati = []
-    for m in _PIANO_LABEL_RE.finditer(text):
-        etichetta = m.group(1)
+    ["TERRA", "PRIMO", "INTERRATO"]), nell'ordine di prima comparsa. Una lista
+    con più di un elemento indica che la tavola contiene probabilmente più
+    piani affiancati sullo stesso foglio."""
+    trovati: list[str] = []
+    for etichetta, _, _ in _piano_label_positions(page):
         if etichetta not in trovati:
             trovati.append(etichetta)
     return trovati
+
+
+def _nearest_piano(point_xy: tuple[float, float], piano_positions: list[tuple[str, float, float]]) -> str | None:
+    """Assegna un punto (etichetta di vano) al titolo di piano più vicino
+    sulla pagina, per semplice distanza euclidea: i piani affiancati sullo
+    stesso foglio hanno di norma il titolo sopra o accanto al gruppo di vani a
+    cui appartiene, quindi il titolo più vicino è quasi sempre quello giusto.
+    Nessuna garanzia su impaginazioni anomale: da qui l'invito a verificare
+    comunque l'assegnazione nel passaggio di revisione."""
+    if not piano_positions:
+        return None
+    px, py = point_xy
+    return min(piano_positions, key=lambda p: (p[1] - px) ** 2 + (p[2] - py) ** 2)[0]
 
 
 def _is_room_label(text: str) -> bool:
@@ -240,11 +278,19 @@ def _extract_rooms_impl(page: "fitz.Page", scale_denominator: int
     spans = _text_spans(page)
     room_labels = [s for s in spans if _is_room_label(s["text"])]
 
+    # Più piante affiancate sullo stesso foglio (vedi _PIANO_LABEL_RE sopra):
+    # con un solo piano (o nessun titolo "PIANO ..." individuato) l'assegnazione
+    # non serve, e piano_positions resta vuota così ogni vano riceve piano=None.
+    piano_positions = _piano_label_positions(page)
+    piani_distinti = list(dict.fromkeys(p[0] for p in piano_positions))
+    assegna_piano = len(piani_distinti) > 1
+
     rooms: list[RoomQuantity] = []
     room_polys: list[Polygon] = []
     for s in room_labels:
         cx, cy = _bbox_center(s["bbox"])
         point = Point(cx, cy)
+        piano = _nearest_piano((cx, cy), piano_positions) if assegna_piano else None
         is_largest_poly_label = any(h in s["text"].upper() for h in _LARGEST_POLY_LABEL_HINTS)
         if is_largest_poly_label:
             # la falda/vasca va presa per intero: percorso già chiuso se c'è,
@@ -267,7 +313,7 @@ def _extract_rooms_impl(page: "fitz.Page", scale_denominator: int
             area_m2, best_poly = min(candidates, key=lambda t: t[0])
         perim_m = pt_to_m(best_poly.length, scale_denominator)
         rooms.append(RoomQuantity(label=s["text"], area_m2=round(area_m2, 2),
-                                   perimeter_m=round(perim_m, 2)))
+                                   perimeter_m=round(perim_m, 2), piano=piano))
         room_polys.append(best_poly)
     return rooms, room_polys
 
@@ -366,6 +412,7 @@ def merge_shared_rooms(rooms: list[RoomQuantity], room_polys: list[Polygon]
         merged_rooms.append(RoomQuantity(
             label=combined_label, area_m2=ref.area_m2, perimeter_m=ref.perimeter_m,
             source="rilevata da poligono disegno (ambiente open space, vani uniti)",
+            piano=ref.piano,
         ))
         merged_polys.append(room_polys[group[0]])
         notes.append(
