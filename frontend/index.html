@@ -50,6 +50,13 @@
   .osservazione-bassa { background: #eef3f6; color: #40515c; border: 1px solid #cdd9e0; }
   #vociTable tr.voce-da-completare { background: #fff2cc; }
   #vociTable tr.voce-da-completare input { background: #fffbe8; }
+  .file-list { display: flex; flex-wrap: wrap; gap: .35rem; margin: .4rem 0 .2rem; }
+  .file-chip { display: inline-flex; align-items: center; gap: .4rem; background: #eef3f6; color: #1b2733;
+    border: 1px solid #cdd9e0; border-radius: 999px; padding: .2rem .3rem .2rem .65rem; font-size: .78rem; max-width: 100%; }
+  .file-chip span.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+  .file-chip button { margin: 0; padding: 0; width: 1.2rem; height: 1.2rem; line-height: 1; border-radius: 50%;
+    background: #a12626; color: #fff; font-size: .78rem; font-weight: 700; cursor: pointer; flex: none; }
+  .file-chip button:hover { background: #7f1d1d; }
 </style>
 </head>
 <body>
@@ -75,14 +82,17 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
 
   <label>Pianta, prospetti e sezioni — stato di progetto (obbligatorio almeno un file, con la pianta per primo)</label>
   <input type="file" id="fileProgetto" accept="application/pdf" multiple />
+  <div class="file-list" id="fileProgettoList"></div>
 
   <div id="rowStatoDiFatto" style="display:none">
     <label>Pianta e sezioni — stato di fatto (obbligatorio per ristrutturazione)</label>
     <input type="file" id="fileStatoDiFatto" accept="application/pdf" multiple />
+    <div class="file-list" id="fileStatoDiFattoList"></div>
   </div>
 
   <label>Piante e sezioni strutturali con abaco pilastri/travi (se più file, la pianta strutturale per prima)</label>
   <input type="file" id="fileStrutturale" accept="application/pdf" multiple />
+  <div class="file-list" id="fileStrutturaleList"></div>
   <label>Pagina abaco pilastri/travi nel documento strutturale unito (0 = prima pagina; se carichi più file, conta le
   pagine in sequenza secondo l'ordine di selezione)</label>
   <input type="number" id="structuralLegendPage" value="1" />
@@ -90,6 +100,7 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
   <label>Pianta di copertura (facoltativa, se più file la pianta di copertura per prima: se assente si usa
   un'approssimazione dal sedime)</label>
   <input type="file" id="fileCopertura" accept="application/pdf" multiple />
+  <div class="file-list" id="fileCoperturaList"></div>
 
   <label>Pagina abaco serramenti nel documento di progetto unito (0 = prima pagina; se carichi più file, conta le
   pagine in sequenza secondo l'ordine di selezione)</label>
@@ -97,6 +108,7 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
 
   <label>Prospetti architettonici quotati (facoltativo, ma consigliato se carichi anche render — vedi sotto)</label>
   <input type="file" id="fileProspetti" accept="application/pdf" multiple />
+  <div class="file-list" id="fileProspettiList"></div>
   <small class="hint">Diverso dal campo "Pianta, prospetti e sezioni" più sopra: qui i prospetti vengono letti per
   individuare le quote altimetriche (es. "±0,00", "+3,00", "+9,10") e misurare automaticamente l'altezza reale tra
   due quote. Serve solo per abbinare un rivestimento di facciata individuato in un render a una superficie
@@ -104,12 +116,14 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
 
   <label>Relazione tecnica ex Legge 10/91 (facoltativa: stratigrafie di murature, solai e copertura)</label>
   <input type="file" id="fileLegge10" accept="application/pdf" multiple />
+  <div class="file-list" id="fileLegge10List"></div>
   <small class="hint">Non è un elaborato in scala: viene solo letta come testo, per riportarti gli spessori
   dichiarati come riferimento e, se riconoscibili, proporli nei parametri dimensionali del passaggio 5. Se il PDF
   è una scansione senza testo selezionabile non può essere letta automaticamente.</small>
 
   <label>Relazione acustica (facoltativa: requisiti acustici passivi/impatto acustico)</label>
   <input type="file" id="fileAcustica" accept="application/pdf" multiple />
+  <div class="file-list" id="fileAcusticaList"></div>
   <small class="hint">Non è un elaborato in scala: viene letta come testo per segnalarti i materiali/lavorazioni
   acustiche tipiche eventualmente citati (es. pannelli fonoisolanti, materassini anticalpestio), che potrai
   scegliere di aggiungere come voce al computo nel passaggio successivo. Se il PDF è una scansione senza testo
@@ -117,6 +131,7 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
 
   <label>Relazione tecnica descrittiva dell'intervento — <strong>obbligatoria</strong></label>
   <input type="file" id="fileRelazioneTecnica" accept="application/pdf" multiple required />
+  <div class="file-list" id="fileRelazioneTecnicaList"></div>
   <small class="hint">Il documento in cui descrivi a parole cosa prevede il progetto (tipo di intervento,
   struttura, materiali, finiture). Viene letta come testo e mostrata integralmente come riferimento nel
   passaggio successivo: nessuna domanda del capitolato viene risposta automaticamente da questo testo, per
@@ -124,6 +139,7 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
 
   <label>Render o immagini fotorealistiche del progetto (facoltativo)</label>
   <input type="file" id="fileRender" accept="image/*,application/pdf" multiple />
+  <div class="file-list" id="fileRenderList"></div>
   <small class="hint">Un'AI osserva le immagini caricate e descrive materiali/elementi visibili con impatto sul
   computo (rivestimenti di facciata, parapetti, infissi, pavimentazioni esterne). Per i rivestimenti di facciata:
   se hai caricato anche i "Prospetti architettonici quotati" qui sopra, il sistema individua DOVE si trova il
@@ -135,9 +151,18 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
 
   <label>Modello 3D — SketchUp (.skp), Revit (.rvt/.rfa) o Rhino (.3dm) (facoltativo)</label>
   <input type="file" id="fileModello3d" accept=".skp,.rvt,.rfa,.3dm" multiple />
+  <div class="file-list" id="fileModello3dList"></div>
   <small class="hint">Allegato come riferimento per la consultazione manuale: questi sono formati proprietari e il
   sistema non ne legge la geometria in questa versione (nessun rilievo o verifica automatica basata sul
   modello).</small>
+
+  <label>Altri documenti di riferimento, in qualsiasi formato (facoltativo)</label>
+  <input type="file" id="fileAltriDocumenti" multiple />
+  <div class="file-list" id="fileAltriDocumentiList"></div>
+  <small class="hint">Per qualunque altro file utile a valutare meglio il progetto e non previsto dai campi qui
+  sopra (foto del sito/cantiere, capitolati, schede tecniche di prodotto, planimetrie catastali, DWG, immagini,
+  fogli di calcolo, ecc.), in qualsiasi formato. Vengono allegati come riferimento per la consultazione manuale:
+  il sistema non li legge o interpreta automaticamente in questa versione.</small>
 
   <button id="btnValidate">Verifica elaborati ed estrai vani</button>
   <div id="validateMsg"></div>
@@ -330,6 +355,81 @@ let currentAnalisiRender = null;
 let currentVoci = [];
 let currentMeta = null;
 
+// --- Gestione file caricati con possibilità di rimuovere un singolo file per
+// errore (un <input type="file"> nativo non lo permette: selezionare di nuovo
+// sostituisce l'intera selezione). Ogni campo file tiene il proprio elenco in
+// fileStore[chiave]; ad ogni "scegli file" i nuovi file vengono AGGIUNTI
+// all'elenco esistente (non lo sostituiscono), e ogni file in elenco ha una
+// "×" per toglierlo. Tutto il resto del codice legge i file da qui
+// (getStoredFiles), mai più da input.files direttamente. ---
+const fileStore = {};
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderFileList(key) {
+  const container = document.getElementById(`${key}List`);
+  if (!container) return;
+  const files = fileStore[key] || [];
+  container.innerHTML = files.map((f, i) => `
+    <span class="file-chip">
+      <span class="name" title="${f.name.replace(/"/g, '&quot;')}">${f.name.replace(/</g, "&lt;")}</span>
+      <small class="hint">${formatFileSize(f.size)}</small>
+      <button type="button" data-key="${key}" data-idx="${i}" title="Rimuovi questo file">×</button>
+    </span>
+  `).join("");
+}
+
+function getStoredFiles(key) {
+  return fileStore[key] || [];
+}
+
+// Estrae SEMPRE un motivo leggibile da una risposta di errore del server,
+// qualunque sia la sua forma (il backend normalizza a {error, messages}, ma
+// questo resta un ripiego a più livelli nel caso arrivi qualcos'altro):
+// mai mostrare solo "Errore" senza spiegazione (richiesto esplicitamente).
+function messaggioErrore(data, res) {
+  if (data && Array.isArray(data.messages) && data.messages.length) return data.messages.join("\n");
+  if (data && data.error) return String(data.error);
+  if (data && data.detail) return typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+  return `Errore HTTP ${res ? res.status : "sconosciuto"}: il server non ha fornito ulteriori dettagli.`;
+}
+
+function initFileInput(key) {
+  fileStore[key] = [];
+  const input = document.getElementById(key);
+  if (!input) return;
+  input.addEventListener("change", () => {
+    for (const f of Array.from(input.files)) {
+      // evita di aggiungere due volte lo stesso file se l'utente lo riseleziona per sbaglio
+      const giaPresente = fileStore[key].some(existing =>
+        existing.name === f.name && existing.size === f.size && existing.lastModified === f.lastModified);
+      if (!giaPresente) fileStore[key].push(f);
+    }
+    input.value = ""; // permette di riaprire la stessa selezione in futuro e continuare ad aggiungere
+    renderFileList(key);
+  });
+}
+
+document.addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".file-chip button");
+  if (!btn) return;
+  const { key, idx } = btn.dataset;
+  if (fileStore[key]) {
+    fileStore[key].splice(parseInt(idx, 10), 1);
+    renderFileList(key);
+  }
+});
+
+[
+  "fileProgetto", "fileStatoDiFatto", "fileStrutturale", "fileCopertura", "fileProspetti",
+  "fileLegge10", "fileAcustica", "fileRelazioneTecnica", "fileRender", "fileModello3d",
+  "fileAltriDocumenti",
+].forEach(initFileInput);
+
 function renderRoomsTable() {
   const tbody = document.querySelector("#roomsTable tbody");
   tbody.innerHTML = "";
@@ -501,7 +601,7 @@ async function inviaIstruzioneAI(i, inputEl) {
     });
     const data = await res.json();
     if (!res.ok) {
-      const errMsg = data.error || "Errore durante l'elaborazione.";
+      const errMsg = messaggioErrore(data, res);
       v.commento = (v.commento ? v.commento + "\n" : "") + `[Tu] ${testo}\n[Errore] ${errMsg}`;
       renderVociTable();
       return;
@@ -551,7 +651,7 @@ document.getElementById("btnRevisionaAI").onclick = async () => {
     });
     const data = await res.json();
     if (!res.ok) {
-      msgEl.textContent = data.error || "Errore durante la rilettura.";
+      msgEl.textContent = messaggioErrore(data, res);
       msgEl.className = "msg err";
       return;
     }
@@ -607,19 +707,20 @@ document.querySelectorAll('input[name="tipoIntervento"]').forEach(r => r.onchang
 loadChecklist();
 
 document.getElementById("btnValidate").onclick = async () => {
-  const progetto = Array.from(document.getElementById("fileProgetto").files);
+  const progetto = getStoredFiles("fileProgetto");
   if (!progetto.length) { alert("Seleziona almeno la pianta di progetto."); return; }
   const tipo = tipoIntervento();
-  const sdf = Array.from(document.getElementById("fileStatoDiFatto").files);
+  const sdf = getStoredFiles("fileStatoDiFatto");
   if (tipo === "ristrutturazione" && !sdf.length) { alert("Per una ristrutturazione carica anche lo stato di fatto."); return; }
-  const strutturale = Array.from(document.getElementById("fileStrutturale").files);
-  const copertura = Array.from(document.getElementById("fileCopertura").files);
-  const prospetti = Array.from(document.getElementById("fileProspetti").files);
-  const legge10 = Array.from(document.getElementById("fileLegge10").files);
-  const acustica = Array.from(document.getElementById("fileAcustica").files);
-  const relazioneTecnica = Array.from(document.getElementById("fileRelazioneTecnica").files);
-  const render = Array.from(document.getElementById("fileRender").files);
-  const modello3d = Array.from(document.getElementById("fileModello3d").files);
+  const strutturale = getStoredFiles("fileStrutturale");
+  const copertura = getStoredFiles("fileCopertura");
+  const prospetti = getStoredFiles("fileProspetti");
+  const legge10 = getStoredFiles("fileLegge10");
+  const acustica = getStoredFiles("fileAcustica");
+  const relazioneTecnica = getStoredFiles("fileRelazioneTecnica");
+  const render = getStoredFiles("fileRender");
+  const modello3d = getStoredFiles("fileModello3d");
+  const altriDocumenti = getStoredFiles("fileAltriDocumenti");
   if (!relazioneTecnica.length) { alert("Carica la relazione tecnica descrittiva dell'intervento: è obbligatoria."); return; }
 
   const toValidate = [];
@@ -666,6 +767,7 @@ document.getElementById("btnValidate").onclick = async () => {
   relazioneTecnica.forEach(f => fd2.append("file_relazione_tecnica", f));
   render.forEach(f => fd2.append("file_render", f));
   modello3d.forEach(f => fd2.append("file_modello_3d", f));
+  altriDocumenti.forEach(f => fd2.append("file_altri_documenti", f));
   fd2.append("legend_page", document.getElementById("legendPage").value || "1");
   fd2.append("structural_legend_page", document.getElementById("structuralLegendPage").value || "1");
 
@@ -673,7 +775,7 @@ document.getElementById("btnValidate").onclick = async () => {
     const res2 = await fetch(`${API}/api/estrai-vani`, { method: "POST", body: fd2 });
     const data2 = await res2.json();
     if (!res2.ok) {
-      msgEl.textContent = (data2.messages || [data2.error || "Errore durante l'estrazione"]).join("\n");
+      msgEl.textContent = messaggioErrore(data2, res2);
       msgEl.className = "msg err";
       return;
     }
@@ -964,7 +1066,7 @@ document.getElementById("btnCalcola").onclick = async () => {
     const res = await fetch(`${API}/api/calcola-voci`, { method: "POST", body: fd });
     const data = await res.json();
     if (!res.ok) {
-      msgEl.textContent = (data.messages || [data.error || "Errore durante il calcolo del computo"]).join("\n");
+      msgEl.textContent = messaggioErrore(data, res);
       msgEl.className = "msg err";
       return;
     }
@@ -1009,7 +1111,7 @@ document.getElementById("btnGenerate").onclick = async () => {
     const res = await fetch(`${API}/api/generate`, { method: "POST", body: fd });
     if (!res.ok) {
       const err = await res.json();
-      msgEl.textContent = (err.messages || [err.error || "Errore"]).join("\n");
+      msgEl.textContent = messaggioErrore(err, res);
       msgEl.className = "msg err";
       return;
     }

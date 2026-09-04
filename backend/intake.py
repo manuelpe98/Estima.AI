@@ -53,6 +53,12 @@ def required_documents(tipo_intervento: str) -> list[RequiredDocument]:
                               "Allegato come riferimento per la consultazione manuale: il sistema NON legge la "
                               "geometria di questi formati proprietari in questa versione (nessun rilievo o "
                               "verifica automatica basata sul modello)"),
+            RequiredDocument("altri_documenti", "Altri documenti di riferimento, in qualsiasi formato "
+                              "(se utili)", False,
+                              "Per qualunque altro file utile a valutare meglio il progetto e non previsto dai "
+                              "punti sopra (foto del sito, capitolati, schede tecniche, planimetrie catastali, "
+                              "DWG, ecc.): allegato come riferimento per la consultazione manuale, non letto o "
+                              "interpretato automaticamente in questa versione"),
         ]
 
     # ristrutturazione
@@ -86,4 +92,9 @@ def required_documents(tipo_intervento: str) -> list[RequiredDocument]:
                           "Allegato come riferimento per la consultazione manuale: il sistema NON legge la "
                           "geometria di questi formati proprietari in questa versione (nessun rilievo o verifica "
                           "automatica basata sul modello)"),
+        RequiredDocument("altri_documenti", "Altri documenti di riferimento, in qualsiasi formato (se utili)", False,
+                          "Per qualunque altro file utile a valutare meglio il progetto e non previsto dai punti "
+                          "sopra (foto del sito, capitolati, schede tecniche, planimetrie catastali, DWG, ecc.): "
+                          "allegato come riferimento per la consultazione manuale, non letto o interpretato "
+                          "automaticamente in questa versione"),
     ]

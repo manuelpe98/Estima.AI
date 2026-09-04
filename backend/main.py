@@ -13,20 +13,26 @@ import base64
 import csv
 import io
 import json
+import logging
 import os
 import secrets
 import shutil
+import traceback
 import uuid
 import zipfile
 from dataclasses import asdict
 from pathlib import Path
 
 import fitz
-from fastapi import FastAPI, UploadFile, File, Form, Body, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, Body, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
+
+logger = logging.getLogger("computo")
 
 from .models import ProjectMeta, RoomQuantity, OpeningQuantity, TaggedElement, RoomComparison, ComputoVoce
 from .pipeline import (
@@ -61,6 +67,47 @@ app = FastAPI(title="Computo Metrico Automatico")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+
+# --- Gestione errori: qualunque errore mostrato in interfaccia deve SEMPRE
+# riportare un motivo comprensibile, mai un messaggio generico senza dettagli
+# (richiesto esplicitamente dopo che un errore imprevisto durante l'estrazione
+# è comparso senza spiegazione). Tre casi distinti, tutti normalizzati nella
+# stessa forma {"error": <testo>, "messages": [<testo>]} che il frontend sa
+# già leggere: 1) un'eccezione Python non prevista da nessun endpoint (senza
+# questo handler, FastAPI la trasforma in un generico "Internal Server Error"
+# senza corpo utile); 2) una richiesta rifiutata prima di entrare nell'endpoint
+# perché manca un campo obbligatorio o ha un tipo sbagliato (altrimenti
+# FastAPI risponde con una lista di oggetti tecnici, non una frase); 3) una
+# HTTPException sollevata esplicitamente nel codice (es. file troppo grande),
+# che di default ha solo "detail" e non "error"/"messages". Il testo completo
+# dell'eccezione Python arriva anche nell'interfaccia (non solo nei log): è
+# uno strumento a un solo utente, non un servizio pubblico, quindi vedere il
+# motivo tecnico reale è più utile che nasconderlo. ---
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error("Errore non gestito su %s %s:\n%s", request.method, request.url.path,
+                 "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+    testo = f"Errore interno imprevisto ({type(exc).__name__}): {exc}"
+    return JSONResponse(status_code=500, content={"error": testo, "messages": [testo]})
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_handler(request: Request, exc: RequestValidationError):
+    dettagli = []
+    for err in exc.errors():
+        campo = ".".join(str(p) for p in err.get("loc", []) if p not in ("body", "query", "path"))
+        dettagli.append(f"{campo}: {err.get('msg', 'valore non valido')}" if campo else err.get("msg", "valore non valido"))
+    testo = "Richiesta non valida — " + "; ".join(dettagli) if dettagli else "Richiesta non valida."
+    return JSONResponse(status_code=422, content={"error": testo, "messages": [testo]})
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exception_handler(request: Request, exc: StarletteHTTPException):
+    testo = str(exc.detail) if exc.detail else f"Errore HTTP {exc.status_code}."
+    return JSONResponse(status_code=exc.status_code, content={"error": testo, "messages": [testo]},
+                         headers=getattr(exc, "headers", None))
+
 
 # Protezione con password (HTTP Basic): non è un vero sistema di account, ma
 # senza account utente è il modo più semplice per far sì che un link altrimenti
@@ -189,6 +236,7 @@ async def api_estrai_vani(
     file_prospetti: list[UploadFile] = File(default=[]),
     file_render: list[UploadFile] = File(default=[]),
     file_modello_3d: list[UploadFile] = File(default=[]),
+    file_altri_documenti: list[UploadFile] = File(default=[]),
     legend_page: int = Form(1),
     structural_legend_page: int = Form(1),
 ):
@@ -216,6 +264,11 @@ async def api_estrai_vani(
     # nessun parsing della geometria in questa versione).
     render_paths = [_save_upload(f) for f in file_render if f.filename]
     modello_3d_paths = [_save_upload(f) for f in file_modello_3d if f.filename]
+    # Altri documenti in formato libero: come il modello 3D, allegati SOLO come
+    # riferimento per la consultazione manuale — nessun formato è previsto, quindi
+    # nessun parsing automatico è possibile in generale (a differenza dei campi
+    # sopra, dedicati a un formato/uso specifico).
+    altri_documenti_paths = [_save_upload(f) for f in file_altri_documenti if f.filename]
 
     if not progetto_paths:
         return JSONResponse(status_code=422, content={
@@ -252,6 +305,7 @@ async def api_estrai_vani(
     documenti_riferimento_allegati = (
         [Path(p).name.split("_", 1)[-1] for p in render_paths]
         + [Path(p).name.split("_", 1)[-1] for p in modello_3d_paths]
+        + [Path(p).name.split("_", 1)[-1] for p in altri_documenti_paths]
     )
     if documenti_riferimento_allegati:
         extraction.note_metodologiche.append(
@@ -349,6 +403,7 @@ async def api_estrai_vani(
         "relazione_tecnica": relazione_tecnica,
         "render_count": len(render_paths),
         "modello_3d_count": len(modello_3d_paths),
+        "altri_documenti_count": len(altri_documenti_paths),
         "documenti_riferimento_allegati": documenti_riferimento_allegati,
         "analisi_render": analisi_render,
     }
