@@ -66,6 +66,38 @@ MAX_ROOM_AREA_M2 = 400.0
 
 TAG_CODE_RE = re.compile(r"^([A-Z]{1,3})\s*0*([0-9]+)$")
 
+# Riconosce le diciture "PIANO XXX" (piano terra, piano primo, piano interrato,
+# ecc.) scritte come titolo/etichetta su una tavola: nella prassi professionale
+# è comunissimo che UNA SOLA tavola raccolga più piante (piano interrato +
+# terra + primo + copertura) affiancate sullo stesso foglio, invece di un
+# foglio per piano. Il rilievo geometrico di questo motore (_extract_rooms_impl)
+# tratta però l'INTERA pagina come un'unica pianta: se sul foglio ci sono più
+# piani, le etichette di vano di piani diversi vengono lette tutte insieme e i
+# poligoni più vicini possono essere associati al piano sbagliato (aree/
+# perimetri sballati o duplicati fra piani). Non esiste in questa versione una
+# segmentazione affidabile per piano (richiederebbe raggruppare spazialmente i
+# vani attorno a ciascun titolo "PIANO ...", rischioso da generalizzare su
+# impaginazioni molto diverse tra loro): si rileva quindi la situazione e la si
+# segnala con forza, invece di produrre numeri silenziosamente inaffidabili.
+_PIANO_LABEL_RE = re.compile(
+    r"\bPIANO\s+(TERRA|PRIMO|SECONDO|TERZO|INTERRATO|SEMINTERRATO|TERRENO|RIALZATO|"
+    r"AMMEZZATO|SOTTOTETTO|ATTICO|COPERTURA)\b"
+)
+
+
+def detect_multiple_plans_on_page(page: "fitz.Page") -> list[str]:
+    """Ritorna le diciture "PIANO ..." distinte trovate sulla pagina (es.
+    ["TERRA", "PRIMO", "INTERRATO"]). Una lista con più di un elemento indica
+    che la tavola contiene probabilmente più piani affiancati sullo stesso
+    foglio: il chiamante deve segnalarlo esplicitamente all'utente."""
+    text = page.get_text("text").upper()
+    trovati = []
+    for m in _PIANO_LABEL_RE.finditer(text):
+        etichetta = m.group(1)
+        if etichetta not in trovati:
+            trovati.append(etichetta)
+    return trovati
+
 
 def _is_room_label(text: str) -> bool:
     if len(text) > _MAX_ROOM_LABEL_LEN:

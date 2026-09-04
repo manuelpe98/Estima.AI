@@ -33,16 +33,21 @@
   button.secondary.small-add { margin-top: .4rem; padding: .35rem .7rem; font-size: .82rem; }
   .note-box { font-size: .85rem; background: #fff8e6; color: #7a5b00; border-radius: 6px; padding: .5rem .7rem; margin-top: .5rem; white-space: pre-wrap; }
   .note-box-warn { background: #fdeaea; color: #a12626; font-weight: 600; border: 1px solid #f3b8b8; }
-  .ai-comment-cell { min-width: 200px; }
-  .ai-comment-log { max-height: 90px; overflow-y: auto; margin-bottom: .3rem; font-size: .78rem; }
-  .ai-comment-log div { padding: .1rem 0; }
-  .ai-comment-log .log-tu { color: #1b2733; }
-  .ai-comment-log .log-tu::before { content: "🧑 "; }
-  .ai-comment-log .log-ai { color: #1c6b3d; }
-  .ai-comment-log .log-ai::before { content: "🤖 "; }
-  .ai-comment-log .log-err { color: #a12626; }
-  .ai-comment-log .log-err::before { content: "⚠️ "; }
-  .ai-comment-input { font-size: .8rem !important; padding: .3rem !important; }
+  .comment-cell { min-width: 200px; }
+  .comment-log { max-height: 90px; overflow-y: auto; margin-bottom: .3rem; font-size: .78rem; }
+  .comment-log div { padding: .1rem 0; }
+  .comment-log .log-tu { color: #1b2733; }
+  .comment-log .log-tu::before { content: "🧑 "; }
+  .comment-log .log-ai { color: #1c6b3d; }
+  .comment-log .log-ai::before { content: "🤖 "; }
+  .comment-log .log-err { color: #a12626; }
+  .comment-log .log-err::before { content: "⚠️ "; }
+  .comment-input { width: 100%; font-size: .8rem !important; padding: .3rem !important; box-sizing: border-box; }
+  .affidabilita-badge { font-size: .78rem; white-space: nowrap; }
+  .osservazione-box { font-size: .85rem; border-radius: 6px; padding: .5rem .7rem; margin-top: .5rem; }
+  .osservazione-alta { background: #fdeaea; color: #a12626; border: 1px solid #f3b8b8; }
+  .osservazione-media { background: #fff8e6; color: #7a5b00; border: 1px solid #f0dca0; }
+  .osservazione-bassa { background: #eef3f6; color: #40515c; border: 1px solid #cdd9e0; }
   #vociTable tr.voce-da-completare { background: #fff2cc; }
   #vociTable tr.voce-da-completare input { background: #fffbe8; }
 </style>
@@ -90,6 +95,13 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
   pagine in sequenza secondo l'ordine di selezione)</label>
   <input type="number" id="legendPage" value="1" />
 
+  <label>Prospetti architettonici quotati (facoltativo, ma consigliato se carichi anche render — vedi sotto)</label>
+  <input type="file" id="fileProspetti" accept="application/pdf" multiple />
+  <small class="hint">Diverso dal campo "Pianta, prospetti e sezioni" più sopra: qui i prospetti vengono letti per
+  individuare le quote altimetriche (es. "±0,00", "+3,00", "+9,10") e misurare automaticamente l'altezza reale tra
+  due quote. Serve solo per abbinare un rivestimento di facciata individuato in un render a una superficie
+  MISURATA, non stimata (vedi il campo render qui sotto): se non carichi render non è necessario.</small>
+
   <label>Relazione tecnica ex Legge 10/91 (facoltativa: stratigrafie di murature, solai e copertura)</label>
   <input type="file" id="fileLegge10" accept="application/pdf" multiple />
   <small class="hint">Non è un elaborato in scala: viene solo letta come testo, per riportarti gli spessori
@@ -102,6 +114,30 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
   acustiche tipiche eventualmente citati (es. pannelli fonoisolanti, materassini anticalpestio), che potrai
   scegliere di aggiungere come voce al computo nel passaggio successivo. Se il PDF è una scansione senza testo
   selezionabile non può essere letta automaticamente.</small>
+
+  <label>Relazione tecnica descrittiva dell'intervento — <strong>obbligatoria</strong></label>
+  <input type="file" id="fileRelazioneTecnica" accept="application/pdf" multiple required />
+  <small class="hint">Il documento in cui descrivi a parole cosa prevede il progetto (tipo di intervento,
+  struttura, materiali, finiture). Viene letta come testo e mostrata integralmente come riferimento nel
+  passaggio successivo: nessuna domanda del capitolato viene risposta automaticamente da questo testo, per
+  evitare di dare per confermato qualcosa solo perché la parola compare nel documento.</small>
+
+  <label>Render o immagini fotorealistiche del progetto (facoltativo)</label>
+  <input type="file" id="fileRender" accept="image/*,application/pdf" multiple />
+  <small class="hint">Un'AI osserva le immagini caricate e descrive materiali/elementi visibili con impatto sul
+  computo (rivestimenti di facciata, parapetti, infissi, pavimentazioni esterne). Per i rivestimenti di facciata:
+  se hai caricato anche i "Prospetti architettonici quotati" qui sopra, il sistema individua DOVE si trova il
+  rivestimento nel render e ne misura l'altezza reale sul prospetto quotato (mai inventata o calcolata dall'AI),
+  proponendoti una superficie misurata (altezza x perimetro esterno) da confermare nel passaggio successivo;
+  altrimenti resta solo una descrizione qualitativa. In nessun caso l'AI decide da sola materiale o prezzo, né
+  modifica il computo automaticamente: verifica sempre di persona. Richiede una chiave AI configurata sul server;
+  senza, i render restano comunque allegati come riferimento.</small>
+
+  <label>Modello 3D — SketchUp (.skp), Revit (.rvt/.rfa) o Rhino (.3dm) (facoltativo)</label>
+  <input type="file" id="fileModello3d" accept=".skp,.rvt,.rfa,.3dm" multiple />
+  <small class="hint">Allegato come riferimento per la consultazione manuale: questi sono formati proprietari e il
+  sistema non ne legge la geometria in questa versione (nessun rilievo o verifica automatica basata sul
+  modello).</small>
 
   <button id="btnValidate">Verifica elaborati ed estrai vani</button>
   <div id="validateMsg"></div>
@@ -125,6 +161,25 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
       <summary>Mostra i passaggi del documento individuati (<span id="legge10Count">0</span>)</summary>
       <div id="legge10Testo" class="note-box" style="max-height:260px; overflow-y:auto"></div>
     </details>
+  </div>
+
+  <div id="relazioneTecnicaPanel" style="display:none">
+    <h3>Relazione tecnica descrittiva dell'intervento</h3>
+    <small class="hint">Testo estratto così com'è dal documento caricato (nessuna interpretazione automatica):
+    usalo per verificare che il sistema abbia a disposizione una descrizione corretta del progetto.</small>
+    <div id="relazioneTecnicaNotes"></div>
+    <details style="margin-top:.4rem">
+      <summary>Mostra il testo estratto</summary>
+      <div id="relazioneTecnicaTesto" class="note-box" style="max-height:260px; overflow-y:auto; white-space:pre-wrap"></div>
+    </details>
+  </div>
+
+  <div id="renderPanel" style="display:none">
+    <h3>🖼️ Analisi visiva AI dei render caricati</h3>
+    <small class="hint">Osservazione qualitativa dell'AI sulle immagini caricate: riferimento per il controllo
+    manuale, non usata per calcolare automaticamente quantità o prezzi nel computo — verifica sempre di persona.</small>
+    <div id="renderSintesi" class="note-box"></div>
+    <ul id="renderElementi"></ul>
   </div>
 
   <div id="acusticaPanel" style="display:none">
@@ -237,12 +292,22 @@ stato di fatto e stato di progetto. Prezzario di default: esempio placeholder, n
   <div style="overflow-x:auto">
   <table class="edit-table" id="vociTable">
     <thead><tr><th>N.</th><th>Codice</th><th>Categoria</th><th>Descrizione</th><th>U.M.</th><th>Quantità</th>
-    <th>Prezzo un. (€)</th><th>Importo (€)</th><th>Commento</th><th></th></tr></thead>
+    <th>Prezzo un. (€)</th><th>Importo (€)</th><th>Affidabilità</th><th>Commento</th><th></th></tr></thead>
     <tbody></tbody>
   </table>
   </div>
   <button type="button" class="secondary small-add" id="btnAddVoce">+ Aggiungi voce</button>
   <p><strong>Totale computo: € <span id="vociTotale">0,00</span></strong></p>
+
+  <div style="margin-top:1rem; padding-top:.8rem; border-top:1px solid #e0e6ea">
+    <button type="button" class="secondary" id="btnRevisionaAI">🤖 Rilettura AI del computo (facoltativa)</button>
+    <small class="hint">Fa rileggere l'intero computo a un modello linguistico più capace, come farebbe un
+    computista esperto in cerca di errori (prezzi o quantità fuori scala, incongruenze tra voci, categorie
+    mancanti). Segnala soltanto: non modifica nulla da solo — sei tu a decidere se e come intervenire.</small>
+    <div id="revisioneAiMsg"></div>
+    <div id="revisioneAiRisultato"></div>
+  </div>
+
   <button id="btnGenerate">Scarica computo definitivo (Excel + PriMus + Word)</button>
   <div id="generateMsg"></div>
 </section>
@@ -260,6 +325,8 @@ let currentNotes = [];
 let currentValidationMessages = [];
 let currentLegge10 = null;
 let currentAcustica = null;
+let currentRelazioneTecnica = null;
+let currentAnalisiRender = null;
 let currentVoci = [];
 let currentMeta = null;
 
@@ -342,6 +409,16 @@ function fmtEuro(n) {
   return (n || 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Provenienza del dato (ComputoVoce.origine, vedi backend/models.py ORIGINE_INFO):
+// stessa etichetta/colore mostrati in Excel e Word, per coerenza.
+const ORIGINE_INFO = {
+  esplicita: ["Esplicita (da elaborato/abaco)", "🟢"],
+  derivata: ["Derivata (calcolata da dati misurati)", "🟢"],
+  inferita: ["Inferita (regola costruttiva/incidenza tipica)", "🟡"],
+  assunta: ["Assunta (valore indicativo generico)", "🟠"],
+  non_disponibile: ["N/D — da completare a mano", "⚪"],
+};
+
 function renderVociTable() {
   const tbody = document.querySelector("#vociTable tbody");
   tbody.innerHTML = "";
@@ -360,19 +437,23 @@ function renderVociTable() {
       <td><input type="number" step="0.01" value="${v.quantita ?? 0}" data-f="quantita"></td>
       <td><input type="number" step="0.01" value="${v.prezzo_unitario ?? 0}" data-f="prezzo_unitario"></td>
       <td class="voceImporto">€ ${fmtEuro(importo)}</td>
-      <td class="ai-comment-cell" style="min-width:200px">
-        <div class="ai-comment-log"></div>
-        <input type="text" class="ai-comment-input" placeholder="Scrivi un'osservazione o una modifica e premi Invio...">
+      <td class="affidabilita-badge" title="${(ORIGINE_INFO[v.origine] || ["",""])[0]}">${(ORIGINE_INFO[v.origine] || ["",""])[1]} ${(ORIGINE_INFO[v.origine] || ["",""])[0]}</td>
+      <td class="comment-cell" style="min-width:200px">
+        <div class="comment-log"></div>
+        <input type="text" class="comment-input" placeholder="Scrivi un'osservazione o una modifica e premi Invio...">
       </td>
       <td><button type="button" class="small">×</button></td>`;
     tr.querySelectorAll("input[data-f]").forEach(inp => inp.onchange = () => {
       const f = inp.dataset.f;
       if (f === "quantita" || f === "prezzo_unitario") currentVoci[i][f] = parseFloat(inp.value) || 0;
       else currentVoci[i][f] = inp.value;
+      // Corretta a mano dall'utente: da qui in poi è un dato esplicito, non più
+      // la stima originale del sistema.
+      currentVoci[i].origine = "esplicita";
       if (f === "quantita" || f === "prezzo_unitario") renderVociTable();
     });
-    renderAiLog(tr.querySelector(".ai-comment-log"), v.commento);
-    const aiInput = tr.querySelector(".ai-comment-input");
+    renderCommentLog(tr.querySelector(".comment-log"), v.commento);
+    const aiInput = tr.querySelector(".comment-input");
     aiInput.onkeydown = (ev) => {
       if (ev.key === "Enter" && !ev.shiftKey) {
         ev.preventDefault();
@@ -385,7 +466,7 @@ function renderVociTable() {
   document.getElementById("vociTotale").textContent = fmtEuro(totale);
 }
 
-function renderAiLog(el, commento) {
+function renderCommentLog(el, commento) {
   if (!commento) { el.innerHTML = ""; return; }
   el.innerHTML = commento.split("\n").filter(l => l.trim()).map(line => {
     let cls = "log-note";
@@ -431,6 +512,9 @@ async function inviaIstruzioneAI(i, inputEl) {
       v.quantita = data.quantita;
       v.prezzo_unitario = data.prezzo_unitario;
       v.categoria = data.categoria;
+      // Corretta a mano dall'utente (tramite l'assistente AI): da qui in poi è
+      // un dato esplicito, non più la stima originale del sistema.
+      v.origine = "esplicita";
     }
     v.commento = (v.commento ? v.commento + "\n" : "") + `[Tu] ${testo}\n[AI] ${data.risposta || ""}`;
     if (data.azione === "elimina") {
@@ -445,10 +529,56 @@ async function inviaIstruzioneAI(i, inputEl) {
     inputEl.placeholder = placeholderOriginale;
   }
 }
+
+document.getElementById("btnRevisionaAI").onclick = async () => {
+  const btn = document.getElementById("btnRevisionaAI");
+  const msgEl = document.getElementById("revisioneAiMsg");
+  const risultatoEl = document.getElementById("revisioneAiRisultato");
+  if (!currentVoci.length) { alert("Nessuna voce da revisionare."); return; }
+  btn.disabled = true;
+  msgEl.textContent = "Rilettura in corso (può richiedere qualche secondo)...";
+  msgEl.className = "msg";
+  risultatoEl.innerHTML = "";
+  try {
+    const res = await fetch(`${API}/api/revisiona-computo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        voci: currentVoci,
+        meta: currentMeta || {},
+        tipo_intervento: tipoIntervento(),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      msgEl.textContent = data.error || "Errore durante la rilettura.";
+      msgEl.className = "msg err";
+      return;
+    }
+    msgEl.textContent = data.sintesi || "";
+    msgEl.className = "msg ok";
+    const oss = data.osservazioni || [];
+    if (!oss.length) {
+      risultatoEl.innerHTML = "<p><small class=\"hint\">Nessuna osservazione: il modello non ha notato problemi evidenti.</small></p>";
+    } else {
+      risultatoEl.innerHTML = oss.map(o => {
+        const cls = "osservazione-" + (o.gravita || "media");
+        const riferimento = o.voce_numero ? `Voce n. ${o.voce_numero}: ` : "";
+        return `<div class="osservazione-box ${cls}"><strong>${riferimento}</strong>${(o.descrizione||"").replace(/</g,'&lt;')}</div>`;
+      }).join("");
+    }
+  } catch (e) {
+    msgEl.textContent = "Errore di connessione: " + e;
+    msgEl.className = "msg err";
+  } finally {
+    btn.disabled = false;
+  }
+};
+
 document.getElementById("btnAddVoce").onclick = () => {
   currentVoci.push({ numero: currentVoci.length + 1, codice: "MAN-01", categoria: "Altro",
     descrizione: "Voce aggiunta manualmente", unita_misura: "cad", quantita: 1, prezzo_unitario: 0,
-    note: "Aggiunta manualmente in fase di revisione", commento: "" });
+    note: "Aggiunta manualmente in fase di revisione", commento: "", origine: "esplicita" });
   renderVociTable();
 };
 
@@ -484,8 +614,13 @@ document.getElementById("btnValidate").onclick = async () => {
   if (tipo === "ristrutturazione" && !sdf.length) { alert("Per una ristrutturazione carica anche lo stato di fatto."); return; }
   const strutturale = Array.from(document.getElementById("fileStrutturale").files);
   const copertura = Array.from(document.getElementById("fileCopertura").files);
+  const prospetti = Array.from(document.getElementById("fileProspetti").files);
   const legge10 = Array.from(document.getElementById("fileLegge10").files);
   const acustica = Array.from(document.getElementById("fileAcustica").files);
+  const relazioneTecnica = Array.from(document.getElementById("fileRelazioneTecnica").files);
+  const render = Array.from(document.getElementById("fileRender").files);
+  const modello3d = Array.from(document.getElementById("fileModello3d").files);
+  if (!relazioneTecnica.length) { alert("Carica la relazione tecnica descrittiva dell'intervento: è obbligatoria."); return; }
 
   const toValidate = [];
   progetto.forEach((f, i) => toValidate.push([`progetto ${i + 1}/${progetto.length}: ${f.name}`, f]));
@@ -525,8 +660,12 @@ document.getElementById("btnValidate").onclick = async () => {
   sdf.forEach(f => fd2.append("file_stato_di_fatto", f));
   strutturale.forEach(f => fd2.append("file_strutturale", f));
   copertura.forEach(f => fd2.append("file_copertura", f));
+  prospetti.forEach(f => fd2.append("file_prospetti", f));
   legge10.forEach(f => fd2.append("file_legge10", f));
   acustica.forEach(f => fd2.append("file_acustica", f));
+  relazioneTecnica.forEach(f => fd2.append("file_relazione_tecnica", f));
+  render.forEach(f => fd2.append("file_render", f));
+  modello3d.forEach(f => fd2.append("file_modello_3d", f));
   fd2.append("legend_page", document.getElementById("legendPage").value || "1");
   fd2.append("structural_legend_page", document.getElementById("structuralLegendPage").value || "1");
 
@@ -547,6 +686,8 @@ document.getElementById("btnValidate").onclick = async () => {
     currentValidationMessages = data2.validation_messages || [];
     currentLegge10 = data2.legge10 || null;
     currentAcustica = data2.acustica || null;
+    currentRelazioneTecnica = data2.relazione_tecnica || null;
+    currentAnalisiRender = data2.analisi_render || null;
 
     renderRoomsTable();
     renderOpeningsTable();
@@ -582,6 +723,52 @@ document.getElementById("btnValidate").onclick = async () => {
       document.getElementById("legge10Testo").textContent = blocchi.join("\n\n---\n\n") || "Nessun passaggio trovato.";
     } else {
       l10Panel.style.display = "none";
+    }
+
+    const relTecPanel = document.getElementById("relazioneTecnicaPanel");
+    if (currentRelazioneTecnica) {
+      relTecPanel.style.display = "block";
+      const relTecNotes = document.getElementById("relazioneTecnicaNotes");
+      relTecNotes.innerHTML = (currentRelazioneTecnica.note || []).map(n =>
+        `<div class="note-box note-box-warn">${n.replace(/</g,'&lt;')}</div>`).join("");
+      document.getElementById("relazioneTecnicaTesto").textContent =
+        currentRelazioneTecnica.testo || "Nessun testo estratto.";
+    } else {
+      relTecPanel.style.display = "none";
+    }
+
+    const renderPanel = document.getElementById("renderPanel");
+    if (currentAnalisiRender && (currentAnalisiRender.elementi || []).length) {
+      renderPanel.style.display = "block";
+      document.getElementById("renderSintesi").textContent = currentAnalisiRender.sintesi || "";
+      const catLabels = {
+        facciata: "Facciata", parapetti: "Parapetti", infissi: "Infissi",
+        pavimentazione_esterna: "Pavimentazione esterna", altro: "Altro",
+      };
+      document.getElementById("renderElementi").innerHTML = currentAnalisiRender.elementi.map(e => {
+        const desc = (e.descrizione || "").replace(/</g, "&lt;");
+        if (e.area_m2 && e.banda_abbinata) {
+          // Superficie MISURATA (non stimata): altezza reale dal prospetto quotato x
+          // perimetro esterno rilevato dalla pianta — proposta come voce da confermare,
+          // non aggiunta automaticamente al computo finché l'utente non conferma qui.
+          const payload = JSON.stringify({
+            descrizione: e.descrizione || "", area_m2: e.area_m2, altezza_m: e.banda_abbinata.altezza_m,
+          }).replace(/"/g, "&quot;");
+          return `<li>
+            <label style="font-weight:normal">
+              <input type="checkbox" class="render-facciata-check" data-payload="${payload}" checked>
+              <strong>${catLabels[e.categoria] || e.categoria}:</strong> ${desc}
+              — superficie misurata: <strong>${e.area_m2} m²</strong>
+              (altezza ${e.banda_abbinata.altezza_m} m dal prospetto quotato x perimetro esterno)
+            </label>
+            <br><small class="hint" style="margin-left:1.4rem">Se confermata, verrà aggiunta al computo come voce
+            con quantità reale ma prezzo e materiale da completare a mano (verifica sempre di persona prima).</small>
+          </li>`;
+        }
+        return `<li><strong>${catLabels[e.categoria] || e.categoria}:</strong> ${desc}</li>`;
+      }).join("");
+    } else {
+      renderPanel.style.display = "none";
     }
 
     const acuPanel = document.getElementById("acusticaPanel");
@@ -765,6 +952,9 @@ document.getElementById("btnCalcola").onclick = async () => {
   const acusticaSelezionati = Array.from(document.querySelectorAll(".acustica-materiale-check:checked"))
     .map(el => el.dataset.materiale);
   fd.append("acustica_materiali_json", JSON.stringify(acusticaSelezionati));
+  const renderFacciateSelezionati = Array.from(document.querySelectorAll(".render-facciata-check:checked"))
+    .map(el => JSON.parse(el.dataset.payload));
+  fd.append("render_facciate_json", JSON.stringify(renderFacciateSelezionati));
 
   const msgEl = document.getElementById("calcolaMsg");
   msgEl.textContent = "Calcolo del computo in corso...";

@@ -25,6 +25,7 @@ CATEGORY_KEYWORDS = {
     "vespaio_aerato": ["vespaio"],
     "velette": ["veletta", "velette", "gola luminosa"],
     "controsoffitti": ["controsoffitt", "contro soffitt"],
+    "gru_cantiere": ["gru a torre", "autogru", "gru da cantiere", "noleggio gru", "nolo gru", "nolo della gru"],
 }
 
 QUESTIONS: list[CapitolatoQuestion] = [
@@ -116,6 +117,13 @@ QUESTIONS: list[CapitolatoQuestion] = [
         testo="Sono previsti controsoffitti in cartongesso? (Il sistema non riconosce automaticamente in "
               "quali ambienti: se rispondi sì, la quantità proposta copre l'intera superficie dei vani e va "
               "corretta a mano per gli ambienti effettivamente interessati)",
+        opzioni=["Sì", "No"],
+    ),
+    CapitolatoQuestion(
+        id="gru_cantiere", categoria="Gru da cantiere",
+        testo="È prevista una gru (a torre o autogru) per il cantiere? Il sistema non lo deduce automaticamente "
+              "dal tipo di intervento (es. una nuova costruzione di solito la richiede, una ristrutturazione "
+              "interna di solito no, ma dipende dal cantiere reale): confermalo tu.",
         opzioni=["Sì", "No"],
     ),
 ]

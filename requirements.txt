@@ -7,3 +7,4 @@ openpyxl
 python-docx
 pydantic
 anthropic
+Pillow

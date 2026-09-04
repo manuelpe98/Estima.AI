@@ -38,7 +38,9 @@ from .intake import required_documents, TIPI_INTERVENTO
 from .parametri_engine import PARAMETRI
 from .legge10_engine import extract_stratigrafie_reference
 from .acustica_engine import extract_acustica_reference
-from .ai_assistant import interpreta_istruzione, AiAssistantError
+from .relazione_tecnica_engine import extract_relazione_tecnica
+from .elevation_engine import extract_elevation_bands
+from .ai_assistant import interpreta_istruzione, revisiona_computo, analizza_render, AiAssistantError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -183,6 +185,10 @@ async def api_estrai_vani(
     file_copertura: list[UploadFile] = File(default=[]),
     file_legge10: list[UploadFile] = File(default=[]),
     file_acustica: list[UploadFile] = File(default=[]),
+    file_relazione_tecnica: list[UploadFile] = File(default=[]),
+    file_prospetti: list[UploadFile] = File(default=[]),
+    file_render: list[UploadFile] = File(default=[]),
+    file_modello_3d: list[UploadFile] = File(default=[]),
     legend_page: int = Form(1),
     structural_legend_page: int = Form(1),
 ):
@@ -202,10 +208,22 @@ async def api_estrai_vani(
     cop_paths = [_save_upload(f) for f in file_copertura if f.filename]
     legge10_paths = [_save_upload(f) for f in file_legge10 if f.filename]
     acustica_paths = [_save_upload(f) for f in file_acustica if f.filename]
+    relazione_tecnica_paths = [_save_upload(f) for f in file_relazione_tecnica if f.filename]
+    prospetti_paths = [_save_upload(f) for f in file_prospetti if f.filename]
+    # Render: analizzato (vedi più sotto) da un'AI con visione, SOLO come riferimento
+    # qualitativo — mai per calcolare quantità/prezzi in automatico. Modello 3D:
+    # allegato SOLO come riferimento per la consultazione manuale (formato proprietario,
+    # nessun parsing della geometria in questa versione).
+    render_paths = [_save_upload(f) for f in file_render if f.filename]
+    modello_3d_paths = [_save_upload(f) for f in file_modello_3d if f.filename]
 
     if not progetto_paths:
         return JSONResponse(status_code=422, content={
             "error": "Carica almeno un elaborato per la pianta di progetto."})
+
+    if not relazione_tecnica_paths:
+        return JSONResponse(status_code=422, content={
+            "error": "È obbligatorio caricare la relazione tecnica descrittiva dell'intervento."})
 
     pdf_progetto_path = _merge_pdfs(progetto_paths, str(UPLOAD_DIR / f"{job_id}_progetto_unito.pdf"))
     pdf_sdf_path = _merge_pdfs(sdf_paths, str(UPLOAD_DIR / f"{job_id}_sdf_unito.pdf")) if sdf_paths else None
@@ -230,6 +248,86 @@ async def api_estrai_vani(
 
     legge10 = extract_stratigrafie_reference(legge10_paths) if legge10_paths else None
     acustica = extract_acustica_reference(acustica_paths) if acustica_paths else None
+    relazione_tecnica = extract_relazione_tecnica(relazione_tecnica_paths)
+    documenti_riferimento_allegati = (
+        [Path(p).name.split("_", 1)[-1] for p in render_paths]
+        + [Path(p).name.split("_", 1)[-1] for p in modello_3d_paths]
+    )
+    if documenti_riferimento_allegati:
+        extraction.note_metodologiche.append(
+            "Documenti allegati come riferimento per la consultazione manuale: "
+            f"{', '.join(documenti_riferimento_allegati)}."
+        )
+
+    # --- Prospetti quotati caricati: se presenti, ne viene fatto un rilievo
+    # meccanico delle bande di altezza (vedi elevation_engine.py) PRIMA di
+    # analizzare i render, così l'AI di visione può abbinare un rivestimento
+    # visto nel render a un'altezza REALMENTE misurata (mai calcolata da lei)
+    # e ottenere una superficie di facciata misurata, non stimata. ---
+    pdf_prospetti_path = (
+        _merge_pdfs(prospetti_paths, str(UPLOAD_DIR / f"{job_id}_prospetti_uniti.pdf"))
+        if prospetti_paths else None
+    )
+    bande_prospetti_viste: list[dict] = []
+    if pdf_prospetti_path:
+        try:
+            with fitz.open(pdf_prospetti_path) as doc_prospetti:
+                bande_prospetti_viste = extract_elevation_bands(doc_prospetti)
+        except Exception:
+            bande_prospetti_viste = []
+    bande_prospetti_flat = [b for vista in bande_prospetti_viste for b in vista["bande"]]
+    if prospetti_paths and not bande_prospetti_flat:
+        extraction.note_metodologiche.append(
+            "Prospetti quotati caricati, ma non è stato possibile individuare in modo affidabile quote "
+            "altimetriche utilizzabili per il rilievo automatico delle altezze di facciata: eventuali "
+            "rivestimenti individuati nei render restano solo un riferimento visivo, senza superficie misurata "
+            "— verifica e misura a mano dai prospetti."
+        )
+
+    # --- Analisi visiva dei render caricati (facoltativa: solo se ci sono render
+    # E una chiave AI configurata). A differenza del modello 3D (formato proprietario
+    # non leggibile), un render è un'immagine: il modello di visione può osservarla e
+    # descrivere materiali/elementi visibili (facciate, parapetti, infissi, pavimentazioni
+    # esterne) — come riferimento qualitativo per l'utente, e per la sola categoria
+    # "facciata", se sono stati caricati anche prospetti quotati con bande misurabili,
+    # può abbinare l'elemento a un'altezza reale (mai calcolata/inventata dall'AI, sempre
+    # verificata server-side in analizza_render/_banda_valida) per ottenere una superficie
+    # MISURATA (altezza x perimetro esterno), da confermare comunque a mano prima di
+    # considerarla definitiva. Se l'AI non è configurata o la chiamata fallisce, non
+    # blocca l'estrazione: viene solo annotato. ---
+    analisi_render = None
+    if render_paths:
+        try:
+            analisi_render = analizza_render(
+                render_paths, prospetti_pdf_path=pdf_prospetti_path, bande_prospetti=bande_prospetti_flat,
+            )
+            for elemento in analisi_render["elementi"]:
+                banda = elemento.get("banda_abbinata")
+                if banda and extraction.perimetro_esterno_m > 0:
+                    elemento["area_m2"] = round(banda["altezza_m"] * extraction.perimetro_esterno_m, 2)
+                else:
+                    elemento["area_m2"] = None
+            righe_render = "; ".join(
+                f"[{e['categoria']}] {e['descrizione']}"
+                + (f" — superficie misurata: {e['area_m2']} m² (banda {e['banda_abbinata']['da_m']}-"
+                   f"{e['banda_abbinata']['a_m']} m dal prospetto)" if e.get("area_m2") else "")
+                for e in analisi_render["elementi"]
+            )
+            extraction.note_metodologiche.append(
+                f"🖼️ Analisi visiva AI dei {analisi_render['immagini_analizzate']} render caricati (riferimento "
+                "qualitativo, NON usato da solo per calcolare quantità o prezzi — verifica sempre di persona): "
+                f"{analisi_render['sintesi']}" + (f" Dettaglio: {righe_render}." if righe_render else "")
+            )
+            if analisi_render["immagini_scartate"]:
+                extraction.note_metodologiche.append(
+                    "I seguenti file caricati come render non sono immagini leggibili e non sono stati "
+                    f"analizzati: {', '.join(analisi_render['immagini_scartate'])}."
+                )
+        except AiAssistantError as exc:
+            extraction.note_metodologiche.append(
+                f"Analisi visiva dei render non disponibile ({exc}): i render restano comunque allegati come "
+                "riferimento per la consultazione manuale."
+            )
 
     return {
         "rooms": [asdict(r) for r in extraction.rooms],
@@ -248,6 +346,11 @@ async def api_estrai_vani(
         "validation_messages": extraction.validation_messages,
         "legge10": legge10,
         "acustica": acustica,
+        "relazione_tecnica": relazione_tecnica,
+        "render_count": len(render_paths),
+        "modello_3d_count": len(modello_3d_paths),
+        "documenti_riferimento_allegati": documenti_riferimento_allegati,
+        "analisi_render": analisi_render,
     }
 
 
@@ -276,6 +379,7 @@ async def api_calcola_voci(
     parametri_json: str = Form("{}"),
     prezzario_id: int | None = Form(None),
     acustica_materiali_json: str = Form("[]"),
+    render_facciate_json: str = Form("[]"),
 ):
     """Seconda fase: dai vani/aperture/elementi (rilevati da /api/estrai-vani
     ed eventualmente corretti dall'utente nella pagina di verifica) alle righe
@@ -308,6 +412,14 @@ async def api_calcola_voci(
         acustica_materiali = [str(m) for m in json.loads(acustica_materiali_json)]
     except (TypeError, ValueError):
         acustica_materiali = []
+    try:
+        # Elementi di facciata (categoria "facciata" di analisi_render) che l'utente
+        # ha confermato nel passaggio di verifica: ognuno arriva già con "area_m2"
+        # calcolata server-side da /api/estrai-vani (altezza misurata su prospetto x
+        # perimetro esterno) — qui non si ricalcola nulla, si passa solo a valle.
+        render_facciate = [dict(r) for r in json.loads(render_facciate_json) if isinstance(r, dict)]
+    except (TypeError, ValueError):
+        render_facciate = []
     meta = ProjectMeta(nome_progetto=nome_progetto, committente=committente, ubicazione=ubicazione)
 
     result = compute_voci(
@@ -321,6 +433,7 @@ async def api_calcola_voci(
         piscina_area_m2=piscina_area_m2, piscina_perimetro_m=piscina_perimetro_m,
         piscina_lunghezza_m=piscina_lunghezza_m, piscina_larghezza_m=piscina_larghezza_m,
         acustica_materiali=acustica_materiali,
+        render_facciate=render_facciate,
     )
 
     return {
@@ -406,13 +519,40 @@ async def api_interpreta_commento(payload: dict = Body(...)):
 
     Corpo atteso: {"voce": {...campi della riga...}, "istruzione": "testo"}.
     Richiede ANTHROPIC_API_KEY configurata sul server: se assente risponde
-    503 con un messaggio chiaro invece di applicare una modifica finta."""
+    503 con un messaggio chiaro invece di applicare una modifica finta.
+    Usa il modello economico (Haiku): è una modifica strutturata su una
+    riga sola, non serve un modello più costoso."""
     voce = payload.get("voce") or {}
     istruzione = (payload.get("istruzione") or "").strip()
     if not istruzione:
         raise HTTPException(400, "Istruzione vuota.")
     try:
         risultato = interpreta_istruzione(voce, istruzione)
+    except AiAssistantError as exc:
+        return JSONResponse(status_code=503, content={"error": str(exc)})
+    return risultato
+
+
+@app.post("/api/revisiona-computo")
+async def api_revisiona_computo(payload: dict = Body(...)):
+    """Secondo passaggio, facoltativo e su richiesta esplicita dell'utente
+    (mai automatico): fa rileggere l'INTERO computo già generato a un
+    modello linguistico più capace (Sonnet, non Haiku — qui serve
+    ragionare su tutte le voci insieme, non modificarne una alla volta),
+    che lo confronta con i dati di progetto e segnala possibili anomalie
+    (prezzi o quantità fuori scala, incongruenze tra voci, categorie
+    mancanti) — SENZA mai modificare nulla da solo: restituisce solo un
+    elenco di osservazioni che l'utente valuta e applica a mano.
+
+    Corpo atteso: {"voci": [...], "meta": {...}, "tipo_intervento": "..."}.
+    Richiede ANTHROPIC_API_KEY: se assente risponde 503."""
+    voci = payload.get("voci") or []
+    meta = payload.get("meta") or {}
+    tipo_intervento = payload.get("tipo_intervento") or ""
+    if not voci:
+        raise HTTPException(400, "Nessuna voce da revisionare.")
+    try:
+        risultato = revisiona_computo(voci, meta, tipo_intervento)
     except AiAssistantError as exc:
         return JSONResponse(status_code=503, content={"error": str(exc)})
     return risultato

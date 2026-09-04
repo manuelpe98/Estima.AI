@@ -189,6 +189,10 @@ PLACEHOLDER_VOCI = [
      "Nolo di bagno chimico da cantiere per l'intera durata del cantiere, compreso la regolare pulizia dello "
      "stesso con cadenza non minore che settimanale. Compreso ogni onere necessario per dare la lavorazione "
      "eseguita a regola d'arte.", "corpo", 1.00),
+    ("cantiere", "gru", "PLC-CNT-03",
+     "Nolo di gru (a torre o autogru) per l'intera durata del cantiere, compreso trasporto, montaggio, "
+     "smontaggio, verifiche periodiche e manovratore ove necessario. Compreso ogni onere necessario per dare "
+     "la lavorazione eseguita a regola d'arte.", "corpo", 1.00),
 
     # Assistenza muraria — separata per tipo (come nel computo di riferimento): posa
     # serramenti/porte (derivata dal conteggio aperture già rilevato) ed elettricista/
@@ -325,13 +329,18 @@ PLACEHOLDER_VOCI = [
     ("scala_esterna", "standard", "PLC-SCE-01",
      "Scala esterna (struttura, gradini e rivestimento) — individuata in pianta ma non quotata in modo "
      "misurabile automaticamente: quantità e prezzo da completare manualmente", "corpo", 0.00),
+    ("scale_interne", "standard", "PLC-SCI-01",
+     "Scala interna (struttura portante, gradini, pianerottoli, ringhiera/parapetto e rivestimento) — "
+     "collega i piani dell'edificio: non quotata in modo misurabile automaticamente dalla sola pianta "
+     "caricata (richiede sezione e/o pianta dei piani collegati). Quantità e prezzo da completare "
+     "manualmente", "corpo", 0.00),
     ("opere_esterne", "recinzione", "PLC-OPE-01",
      "Recinzione esterna del lotto — non rappresentata nella pianta di progetto caricata: quantità e prezzo "
      "da completare manualmente in base alla planimetria generale", "ml", 0.00),
     ("opere_esterne", "smaltimento_acque", "PLC-OPE-02",
-     "Rete di smaltimento acque bianche/nere esterne (tubazioni, pozzetti, pozzi perdenti) — non rappresentata "
-     "nella pianta di progetto caricata: quantità e prezzo da completare manualmente in base alla planimetria "
-     "generale/rete sottoservizi", "corpo", 0.00),
+     "Rete di smaltimento acque bianche/nere esterne e cavidotti elettrici esterni (tubazioni e pozzetti) — non "
+     "rappresentata nella pianta di progetto caricata: quantità e prezzo da completare manualmente in base alla "
+     "planimetria generale/rete sottoservizi", "corpo", 0.00),
     ("opere_esterne", "pavimentazioni_esterne", "PLC-OPE-03",
      "Pavimentazioni esterne, marciapiedi e sistemazioni del sedime (solarium, vialetti, scivoli) — non "
      "quantificate in modo affidabile dalla sola pianta architettonica: quantità e prezzo da completare "
@@ -342,6 +351,40 @@ PLACEHOLDER_VOCI = [
      "Compreso ogni onere necessario per dare la fornitura eseguita a regola d'arte. Non rappresentata nella "
      "pianta di progetto caricata: quantità e prezzo da completare manualmente in base alla planimetria "
      "generale/rete sottoservizi", "n.", 0.00),
+    ("opere_esterne", "pozzo_perdente", "PLC-OPE-05",
+     "Fornitura e posa in opera di pozzo perdente costituito da anelli prefabbricati in calcestruzzo forati per "
+     "lo smaltimento nel sottosuolo delle acque meteoriche/reflue, compreso lo scavo, il riempimento in ghiaia "
+     "e il reinterro. Non rappresentato nella pianta di progetto caricata: quantità e prezzo da completare "
+     "manualmente in base alla planimetria generale/rete sottoservizi", "n.", 0.00),
+
+    # Lattonerie: presenti quasi ovunque ci sia una copertura, ma lo sviluppo lineare reale
+    # (gronde, compluvi, displuvi, scossaline) non è desumibile dalla sola superficie di
+    # copertura in pianta.
+    ("lattonerie", "standard", "PLC-LAT-01",
+     "Fornitura e posa in opera di lattonerie (gronde, scossaline, pluviali, converse) in alluminio o rame "
+     "preverniciato, compresi pezzi speciali, sovrapposizioni, fissaggi e raccordi alla rete di scarico. "
+     "Sviluppo lineare non desumibile dalla sola superficie di copertura in pianta: quantità e prezzo da "
+     "completare manualmente da prospetti/sezioni quotate", "ml", 0.00),
+
+    # Soglie e davanzali: tipici di ogni serramento esterno tradizionale, ma quali aperture li
+    # richiedono (finestra normale vs. porta-finestra a raso pavimento, logge, ecc.) è una scelta
+    # di progetto, non deducibile in automatico dalla sola pianta.
+    ("soglie_davanzali", "standard", "PLC-SGD-01",
+     "Fornitura e posa in opera di soglie e davanzali in pietra (o altro materiale da capitolato) per i "
+     "serramenti esterni, completi di gocciolatoio, compresa la lavorazione delle coste e la preparazione del "
+     "piano di posa. Quali aperture li richiedono non è deducibile in automatico dalla sola pianta: quantità e "
+     "prezzo da completare manualmente", "ml", 0.00),
+
+    # Rivestimento di facciata: individuato SOLO visivamente in un render caricato dall'utente e
+    # abbinato dall'AI a una banda di altezza REALMENTE misurata su un prospetto quotato (vedi
+    # elevation_engine.py e ai_assistant.analizza_render) — quantità (superficie) reale, ma il
+    # materiale specifico (pietra, klinker, doghe...) e il relativo prezzo variano troppo per un
+    # prezzo segnaposto: restano sempre da completare manualmente.
+    ("rivestimento_facciata", "standard", "PLC-RIF-01",
+     "Fornitura e posa in opera di rivestimento di facciata (materiale da specificare in base al render/"
+     "capitolato: pietra naturale o ricostruita, klinker, doghe, ecc.), compresi struttura di supporto/collante, "
+     "sigillature e pezzi speciali. Superficie misurata da altezza rilevata su prospetto quotato x perimetro "
+     "esterno; materiale e prezzo da completare manualmente in base a quanto individuato nel render", "m²", 0.00),
 
     # Impianti (elettrico + idrico-sanitario + termico/climatizzazione insieme, a corpo, come percentuale
     # indicativa del resto del computo — l'importo è calcolato dalla pipeline, non da quantità x prezzo unitario)

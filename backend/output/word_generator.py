@@ -2,11 +2,11 @@
 (per coerenza con la convenzione già seguita per il caso Colombo)."""
 from __future__ import annotations
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
-from ..models import ComputoVoce, ProjectMeta, RoomComparison
+from ..models import ComputoVoce, ProjectMeta, RoomComparison, ORIGINE_INFO
 
 # Colore di evidenziazione per le voci "da completare a mano" (stesso giallo
 # usato nel file Excel), applicato allo sfondo delle celle della riga.
@@ -50,7 +50,16 @@ def build_word(voci: list[ComputoVoce], meta: ProjectMeta, note_metodologiche: l
         "e confermati dall'utente, e sono riportati nelle note metodologiche e nelle singole voci."
     )
     if note_metodologiche:
-        for nota in note_metodologiche:
+        critiche = [n for n in note_metodologiche if n.startswith("ATTENZIONE")]
+        normali = [n for n in note_metodologiche if not n.startswith("ATTENZIONE")]
+        if critiche:
+            doc.add_heading("⚠ Avvisi critici — leggere prima di usare questo computo", level=2)
+            for nota in critiche:
+                p = doc.add_paragraph()
+                run = p.add_run(nota)
+                run.bold = True
+                run.font.color.rgb = RGBColor(0x9C, 0x00, 0x06)
+        for nota in normali:
             doc.add_paragraph(nota, style="Intense Quote")
 
     if validazione_msg:
@@ -81,12 +90,12 @@ def build_word(voci: list[ComputoVoce], meta: ProjectMeta, note_metodologiche: l
         doc.add_paragraph()
 
     ha_commenti = any(getattr(v, "commento", "") for v in voci)
-    n_cols = 8 if ha_commenti else 7
+    n_cols = 9 if ha_commenti else 8
     doc.add_heading("Elenco voci di computo", level=1)
     table = doc.add_table(rows=1, cols=n_cols)
     table.style = "Light Grid Accent 1"
     hdr = table.rows[0].cells
-    intestazioni = ["N.", "Codice", "Categoria", "Descrizione", "U.M.", "Q.tà", "Importo (€)"]
+    intestazioni = ["N.", "Codice", "Categoria", "Descrizione", "U.M.", "Q.tà", "Importo (€)", "Affidabilità"]
     if ha_commenti:
         intestazioni.append("Commento")
     for i, h in enumerate(intestazioni):
@@ -108,8 +117,10 @@ def build_word(voci: list[ComputoVoce], meta: ProjectMeta, note_metodologiche: l
         row[4].text = v.unita_misura
         row[5].text = f"{v.quantita:,.2f}"
         row[6].text = f"{v.importo:,.2f}"
+        origine_label, origine_emoji = ORIGINE_INFO.get(getattr(v, "origine", "assunta"), ("", ""))
+        row[7].text = f"{origine_emoji} {origine_label}".strip()
         if ha_commenti:
-            row[7].text = getattr(v, "commento", "") or ""
+            row[8].text = getattr(v, "commento", "") or ""
         if da_completare:
             for cell in row:
                 _shade_cell(cell, _DA_COMPLETARE_FILL_HEX)
@@ -122,6 +133,15 @@ def build_word(voci: list[ComputoVoce], meta: ProjectMeta, note_metodologiche: l
             "(quantità/prezzo non calcolabili dagli elaborati caricati)."
         )
         legend_run.bold = True
+
+    legenda_p = doc.add_paragraph()
+    legenda_run = legenda_p.add_run(
+        "Legenda colonna Affidabilità (provenienza del dato, categorie da non mischiare tra loro): "
+        + "; ".join(f"{emoji} {label}" for label, emoji in
+                     (ORIGINE_INFO["esplicita"], ORIGINE_INFO["derivata"], ORIGINE_INFO["inferita"],
+                      ORIGINE_INFO["assunta"], ORIGINE_INFO["non_disponibile"])) + "."
+    )
+    legenda_run.italic = True
 
     doc.add_paragraph()
     tot_p = doc.add_paragraph()

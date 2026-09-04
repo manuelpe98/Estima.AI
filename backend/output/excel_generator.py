@@ -3,7 +3,7 @@ from __future__ import annotations
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
-from ..models import ComputoVoce, ProjectMeta
+from ..models import ComputoVoce, ProjectMeta, ORIGINE_INFO
 
 HEADER_FILL = PatternFill(start_color="1F4E5F", end_color="1F4E5F", fill_type="solid")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
@@ -15,12 +15,22 @@ BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 # prima di considerare il computo definitivo — vedi anche la nota di riga.
 DA_COMPLETARE_FILL = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
 DA_COMPLETARE_FONT = Font(bold=True, color="7F6000")
+# Avviso critico (es. "nessun vano riconosciuto"): sfondo rosso tenue, testo in
+# grassetto — deve essere impossibile non notarlo aprendo il file, a differenza
+# delle altre note metodologiche (vedi ATTENZIONE_PREFIX più sotto). Prima di
+# questa versione le note metodologiche non comparivano affatto nel file Excel
+# (solo nel Word e nell'interfaccia): chi apriva solo l'Excel non aveva modo di
+# sapere PERCHÉ il computo fosse vuoto o incompleto.
+ATTENZIONE_FILL = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
+ATTENZIONE_FONT = Font(bold=True, color="9C0006")
+ATTENZIONE_PREFIX = "ATTENZIONE"
 
 COLUMNS = ["N.", "Codice", "Categoria", "Descrizione", "U.M.", "Quantità",
-           "Prezzo unitario (€)", "Importo (€)", "Note", "Commento"]
+           "Prezzo unitario (€)", "Importo (€)", "Affidabilità", "Note", "Commento"]
 
 
-def build_excel(voci: list[ComputoVoce], meta: ProjectMeta, out_path: str) -> str:
+def build_excel(voci: list[ComputoVoce], meta: ProjectMeta, out_path: str,
+                 note_metodologiche: list[str] | None = None) -> str:
     wb = Workbook()
     ws = wb.active
     ws.title = "Computo metrico"
@@ -32,7 +42,32 @@ def build_excel(voci: list[ComputoVoce], meta: ProjectMeta, out_path: str) -> st
     ws["A4"] = f"Ubicazione: {meta.ubicazione or '-'}"
     ws["A5"] = f"Prezzario di riferimento: {meta.prezzario_nome}"
 
-    header_row = 7
+    note_row = 6
+    if note_metodologiche:
+        critiche = [n for n in note_metodologiche if n.startswith(ATTENZIONE_PREFIX)]
+        normali = [n for n in note_metodologiche if not n.startswith(ATTENZIONE_PREFIX)]
+        for nota in critiche:
+            cell = ws.cell(row=note_row, column=1, value=nota)
+            cell.fill = ATTENZIONE_FILL
+            cell.font = ATTENZIONE_FONT
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            ws.merge_cells(start_row=note_row, start_column=1, end_row=note_row, end_column=11)
+            ws.row_dimensions[note_row].height = 45
+            note_row += 1
+        if normali:
+            label_cell = ws.cell(row=note_row, column=1, value="Note metodologiche:")
+            label_cell.font = Font(bold=True, italic=True, size=9)
+            note_row += 1
+            for nota in normali:
+                cell = ws.cell(row=note_row, column=1, value=f"• {nota}")
+                cell.font = Font(italic=True, size=9)
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                ws.merge_cells(start_row=note_row, start_column=1, end_row=note_row, end_column=11)
+                ws.row_dimensions[note_row].height = 30
+                note_row += 1
+        note_row += 1
+
+    header_row = max(note_row, 7)
     for col_idx, title in enumerate(COLUMNS, start=1):
         cell = ws.cell(row=header_row, column=col_idx, value=title)
         cell.fill = HEADER_FILL
@@ -50,17 +85,19 @@ def build_excel(voci: list[ComputoVoce], meta: ProjectMeta, out_path: str) -> st
             righe_da_completare += 1
             note_cell = (("⚠ DA COMPLETARE A MANO — " + note_cell) if note_cell
                          else "⚠ DA COMPLETARE A MANO: quantità e prezzo non calcolabili da questa pianta.")
+        origine_label, origine_emoji = ORIGINE_INFO.get(getattr(v, "origine", "assunta"), ("", ""))
+        affidabilita_cell = f"{origine_emoji} {origine_label}".strip()
         values = [v.numero, v.codice, v.categoria, v.descrizione, v.unita_misura,
-                  v.quantita, v.prezzo_unitario, v.importo, note_cell, getattr(v, "commento", "")]
+                  v.quantita, v.prezzo_unitario, v.importo, affidabilita_cell, note_cell, getattr(v, "commento", "")]
         for col_idx, val in enumerate(values, start=1):
             cell = ws.cell(row=row, column=col_idx, value=val)
             cell.border = BORDER
-            cell.alignment = Alignment(vertical="top", wrap_text=(col_idx in (4, 9, 10)))
+            cell.alignment = Alignment(vertical="top", wrap_text=(col_idx in (4, 10, 11)))
             if col_idx in (6, 7, 8):
                 cell.number_format = "#,##0.00"
             if da_completare:
                 cell.fill = DA_COMPLETARE_FILL
-                if col_idx == 9:
+                if col_idx == 10:
                     cell.font = DA_COMPLETARE_FONT
         totale += v.importo
         row += 1
@@ -75,8 +112,16 @@ def build_excel(voci: list[ComputoVoce], meta: ProjectMeta, out_path: str) -> st
     tot_cell = ws.cell(row=row + 1, column=8, value=round(totale, 2))
     tot_cell.font = Font(bold=True)
     tot_cell.number_format = "#,##0.00"
+    row += 3
 
-    widths = [5, 12, 18, 48, 8, 11, 16, 14, 40, 30]
+    ws.cell(row=row, column=2, value="Legenda colonna Affidabilità (provenienza del dato):").font = Font(bold=True)
+    row += 1
+    for chiave in ("esplicita", "derivata", "inferita", "assunta", "non_disponibile"):
+        label, emoji = ORIGINE_INFO[chiave]
+        ws.cell(row=row, column=2, value=f"{emoji} {label}")
+        row += 1
+
+    widths = [5, 12, 18, 48, 8, 11, 16, 14, 30, 40, 30]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 

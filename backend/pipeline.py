@@ -26,7 +26,7 @@ from .pdf_validation import validate_pdf, find_scale_on_page, detect_empirical_s
 from .geometry_engine import (
     rooms_with_polygons, extract_openings, extract_tagged_elements, extract_dimensioned_openings,
     extract_building_footprint_m2, extract_building_perimeter_m, merge_shared_rooms, extract_piscina,
-    ROOM_LABEL_HINTS, DOOR_HEIGHT_RANGE_CM,
+    ROOM_LABEL_HINTS, DOOR_HEIGHT_RANGE_CM, detect_multiple_plans_on_page,
 )
 from .capitolato_engine import missing_questions
 from .parametri_engine import merge_parametri
@@ -194,6 +194,18 @@ def extract_quantities(
             f"pagina (1:{scale_pagina_piano})."
         )
     scale_pagina_piano = _resolve_scale(doc, 0, scale_pagina_piano, "Pianta di progetto", result.note_metodologiche)
+    piani_sulla_tavola = detect_multiple_plans_on_page(doc[0])
+    if len(piani_sulla_tavola) > 1:
+        result.note_metodologiche.append(
+            "ATTENZIONE: questa tavola sembra contenere più piani sullo stesso foglio "
+            f"({', '.join('piano ' + p.lower() for p in piani_sulla_tavola)}), come è normale nella prassi "
+            "professionale per progetti di piccole dimensioni. Il rilievo automatico di questa versione tratta "
+            "però l'INTERA pagina come un'unica pianta: le etichette dei vani di piani diversi vengono lette "
+            "tutte insieme e un'area o un perimetro può risultare associato al piano sbagliato o duplicato tra "
+            "piani (es. una piscina o un vano con lo stesso nome disegnati su più livelli). Verifica con "
+            "particolare attenzione OGNI area/perimetro nel passaggio di revisione prima di procedere: se "
+            "possibile, per un rilievo più affidabile carica ciascun piano come pagina/file separato."
+        )
     lp = legend_page if (legend_page is not None and legend_page < doc.page_count) else None
     rooms, room_polys = rooms_with_polygons(doc, scale_pagina_piano, plan_page=0)
     rooms, room_polys, merge_notes = merge_shared_rooms(rooms, room_polys)
@@ -334,6 +346,7 @@ def compute_voci(
     piscina_lunghezza_m: float = 0.0,
     piscina_larghezza_m: float = 0.0,
     acustica_materiali: list[str] | None = None,
+    render_facciate: list[dict] | None = None,
 ) -> PipelineResult:
     """Da vani/aperture/elementi (rilevati automaticamente e/o corretti
     dall'utente nel passaggio di verifica) alle righe di computo VALORIZZATE,
@@ -364,6 +377,8 @@ def compute_voci(
         piscina_area_m2=piscina_area_m2, piscina_perimetro_m=piscina_perimetro_m,
         piscina_lunghezza_m=piscina_lunghezza_m, piscina_larghezza_m=piscina_larghezza_m,
         acustica_materiali=acustica_materiali,
+        tipo_intervento=tipo_intervento,
+        render_facciate=render_facciate,
     )
     # le note raccolte durante l'estrazione (es. avviso "nessun vano riconosciuto",
     # scale diverse su pagine diverse) vanno CONSERVATE, non sostituite da quelle
@@ -404,7 +419,7 @@ def build_files_from_voci(
     a mano dall'utente nel passaggio di revisione — quantità, prezzi,
     descrizioni, commenti): non ricalcola nulla dai vani/aperture originali,
     così le correzioni dell'utente sono quelle che finiscono nei file."""
-    build_excel(voci, meta, excel_out)
+    build_excel(voci, meta, excel_out, note_metodologiche=note_metodologiche)
     build_primus_export(voci, meta, primus_out)
     build_word(voci, meta, note_metodologiche, validation_messages, word_out, confronto=confronto)
 
@@ -445,6 +460,7 @@ def build_from_quantities(
     piscina_lunghezza_m: float = 0.0,
     piscina_larghezza_m: float = 0.0,
     acustica_materiali: list[str] | None = None,
+    render_facciate: list[dict] | None = None,
 ) -> PipelineResult:
     """Da vani/aperture/elementi ai file finali del computo, in un solo passo
     (calcola le voci e genera subito i file, senza passaggio di revisione
@@ -462,6 +478,7 @@ def build_from_quantities(
         piscina_area_m2=piscina_area_m2, piscina_perimetro_m=piscina_perimetro_m,
         piscina_lunghezza_m=piscina_lunghezza_m, piscina_larghezza_m=piscina_larghezza_m,
         acustica_materiali=acustica_materiali,
+        render_facciate=render_facciate,
     )
     final = build_files_from_voci(
         voci=computed.voci, meta=meta, note_metodologiche=computed.note_metodologiche,
@@ -494,6 +511,7 @@ def run_pipeline(
     primus_out: str = "elenco_prezzi_primus.xlsx",
     word_out: str = "computo.docx",
     acustica_materiali: list[str] | None = None,
+    render_facciate: list[dict] | None = None,
 ) -> PipelineResult:
     """Esegue estrazione e generazione in un solo passaggio (senza il
     passaggio di verifica intermedio): usata dai test e da chi non ha
@@ -526,4 +544,5 @@ def run_pipeline(
         piscina_area_m2=extraction.piscina_area_m2, piscina_perimetro_m=extraction.piscina_perimetro_m,
         piscina_lunghezza_m=extraction.piscina_lunghezza_m, piscina_larghezza_m=extraction.piscina_larghezza_m,
         acustica_materiali=acustica_materiali,
+        render_facciate=render_facciate,
     )

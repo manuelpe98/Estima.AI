@@ -19,6 +19,14 @@ class ParametroNumerico:
 
 
 PARAMETRI: list[ParametroNumerico] = [
+    ParametroNumerico("numero_piani", "Numero di piani (solai) dell'edificio", 1.0, "n.",
+                       "Moltiplica automaticamente la voce solai (ogni piano ha il proprio solaio interpiano, di "
+                       "copertura o contro terra): imposta il numero reale di solai presenti nell'edificio, non "
+                       "solo i piani fuori terra. NON moltiplica fondazioni e scavi (non scalano con il numero di "
+                       "piani, salvo un piano interrato più profondo, da correggere a parte con il parametro "
+                       "profondità scavo) né pavimenti/pareti/serramenti/porte, che restano quelli rilevati dalla "
+                       "singola pianta caricata: per un edificio multi-piano vanno comunque caricate ed elaborate "
+                       "le piante di ciascun livello separatamente."),
     ParametroNumerico("altezza_interna_m", "Altezza interna dei vani", 2.70, "m",
                        "Usata per la superficie di intonaco/tinteggiatura pareti"),
     ParametroNumerico("altezza_interpiano_strutturale_m", "Altezza di interpiano strutturale", 3.00, "m",
@@ -77,6 +85,10 @@ PARAMETRI: list[ParametroNumerico] = [
                        "idrico-sanitario/climatizzazione sul totale delle altre lavorazioni", 2.0, "%",
                        "Costo del solo aiuto muratore (tracce, fori, ripristini), distinto dall'impianto "
                        "idrico-sanitario stesso — stima a corpo come percentuale indicativa, da confermare"),
+    ParametroNumerico("costo_noleggio_gru_eur", "Costo del nolo gru da cantiere (a corpo, per l'intera "
+                       "durata dei lavori)", 8000.0, "€",
+                       "Usato solo se hai confermato che è prevista una gru per il cantiere: dipende molto da "
+                       "tipo di gru, durata e accessibilità del cantiere, valore parametrico indicativo da correggere"),
 ]
 
 
