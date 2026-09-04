@@ -2,77 +2,448 @@
 <html lang="it">
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Computo Metrico Automatico — MVP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #1b2733; }
-  h1 { font-size: 1.4rem; }
-  section { border: 1px solid #dbe2e8; border-radius: 10px; padding: 1.2rem; margin-bottom: 1.2rem; }
-  section h2 { margin-top: 0; font-size: 1.05rem; }
-  label { display: block; margin: .6rem 0 .2rem; font-weight: 600; font-size: .9rem; }
-  input[type=text], input[type=number], textarea, select { width: 100%; padding: .5rem; border: 1px solid #c7d0d8; border-radius: 6px; box-sizing: border-box; font-family: inherit; }
-  button { margin-top: .8rem; padding: .55rem 1.1rem; border: none; border-radius: 6px; background: #1f4e5f; color: #fff; cursor: pointer; font-weight: 600; }
-  button.secondary { background: #5a6b74; }
-  button:disabled { background: #a9b7bd; cursor: not-allowed; }
-  .msg { font-size: .88rem; padding: .5rem .7rem; border-radius: 6px; margin-top: .6rem; white-space: pre-wrap; }
-  .msg.ok { background: #e4f5ea; color: #1c6b3d; }
-  .msg.err { background: #fdeaea; color: #a12626; }
-  .question, .doc-row, .param-row { border-top: 1px solid #eef1f3; padding-top: .6rem; margin-top: .6rem; }
-  .doc-row .req { color: #a12626; font-size: .78rem; }
-  .doc-row .opt { color: #64717a; font-size: .78rem; }
-  .radio-group { display: flex; gap: 1.2rem; margin-top: .4rem; }
-  small.hint { color: #64717a; }
+  :root {
+    --font-serif: 'Fraunces', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+    --font-head: 'Space Grotesk', 'Inter', sans-serif;
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --bg: #f2ebdc;
+    --paper: #fffcf6;
+    --glass-bg: rgba(255,252,246,0.55);
+    --glass-bg-strong: rgba(255,255,255,0.62);
+    --glass-border: rgba(74,54,30,0.16);
+    --ink: #2b2419;
+    --ink-soft: #7d715f;
+    --ink-faint: #9c9080;
+    --line: rgba(74,54,30,0.15);
+    --line-strong: rgba(74,54,30,0.28);
+    --accent: #b4703f;
+    --accent-soft-c: #c98a54;
+    --accent-dark: #8a5527;
+    --accent-soft: rgba(180,112,63,0.14);
+    --ok-bg: rgba(76,107,52,0.12);
+    --ok-fg: #4c6b34;
+    --err-bg: rgba(161,58,38,0.10);
+    --err-fg: #a13a26;
+    --warn-bg: rgba(138,90,23,0.12);
+    --warn-fg: #8a5a17;
+    --radius-s: 8px;
+    --radius-m: 18px;
+    --shadow-card: 0 24px 50px -28px rgba(74,54,30,0.30);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { background: var(--bg); }
+
+  body {
+    font-family: var(--font-sans);
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 5rem;
+    color: var(--ink);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+  }
+
+  /* --- fixed atmospheric layers: WebGL canvas + blueprint grid + vignette + scanline --- */
+  #webgl-bg { position: fixed; inset: 0; z-index: -4; }
+  .grid-overlay {
+    position: fixed; inset: 0; z-index: -3; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(120,85,50,0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120,85,50,0.07) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
+  }
+  .noise-vignette {
+    position: fixed; inset: 0; z-index: -2; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 0%, rgba(242,235,220,0) 0%, rgba(242,235,220,0.15) 55%, rgba(242,235,220,0.6) 100%);
+  }
+  .scanline {
+    position: fixed; left: 0; right: 0; height: 2px; z-index: -1; pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgba(180,112,63,0.25), transparent);
+    animation: scan 9s linear infinite;
+    opacity: .6;
+  }
+  @keyframes scan { 0% { top: -2%; } 100% { top: 102%; } }
+  @media (prefers-reduced-motion: reduce) { .scanline { animation: none; display: none; } }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: .55rem;
+    font-family: var(--font-head); font-size: .72rem; font-weight: 600; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--accent);
+    margin-bottom: 1.3rem;
+  }
+  .eyebrow::before {
+    content: ""; width: .42rem; height: .42rem; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px 2px rgba(180,112,63,0.4);
+    animation: pulse 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(.72); } }
+  @media (prefers-reduced-motion: reduce) { .eyebrow::before { animation: none; } }
+
+  h1 {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    font-size: clamp(1.9rem, 1.3rem + 2.4vw, 3.1rem);
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+    margin: 0 0 .6rem;
+    color: var(--ink);
+    display: flex; flex-wrap: wrap; gap: .05em .3em; align-items: baseline;
+  }
+  h1 .word {
+    display: inline-block; opacity: 0; transform: translateY(.5em);
+    animation: rise .9s cubic-bezier(.2,.9,.25,1) forwards, shimmer 9s linear infinite 1s;
+    background: linear-gradient(120deg, var(--ink), var(--accent) 45%, var(--accent-soft-c) 60%, var(--ink));
+    background-size: 280% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  h1 .word:nth-child(1) { animation-delay: .05s, 1s; }
+  h1 .word:nth-child(2) { animation-delay: .18s, 1s; }
+  h1 .word:nth-child(3) { animation-delay: .31s, 1s; }
+  @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+  @keyframes shimmer { to { background-position: -280% 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    h1 .word { animation: none; opacity: 1; transform: none; background-position: 0 0; }
+  }
+  h1 .tag {
+    display: inline-block;
+    font-family: var(--font-head);
+    font-size: .38em;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    border-radius: 999px;
+    padding: .35em .8em;
+    vertical-align: middle;
+    margin-left: .3rem;
+  }
+
+  body > p.lede {
+    color: var(--ink-soft);
+    font-size: .95rem;
+    max-width: 640px;
+    margin: 0 0 2.6rem;
+    padding-bottom: 1.8rem;
+    border-bottom: 1px solid var(--line);
+  }
+  body > p.lede small.hint { color: var(--ink-soft); }
+
+  /* --- glass section panels --- */
+  section {
+    position: relative;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-m);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.45) inset, var(--shadow-card);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    padding: 2rem clamp(1.2rem, 4vw, 2.4rem);
+    margin-bottom: 1.9rem;
+    overflow: hidden;
+  }
+  section::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+    background: linear-gradient(135deg, rgba(180,112,63,0.38), rgba(180,112,63,0) 45%, rgba(125,113,95,0.22) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    opacity: .6; pointer-events: none;
+  }
+  section::after {
+    content: ""; position: absolute; top: -35%; left: -8%; width: 55%; height: 130%;
+    background: radial-gradient(circle, rgba(180,112,63,0.07), transparent 65%);
+    pointer-events: none;
+  }
+
+  section h2 {
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+    margin: 0 0 1.5rem;
+    padding-bottom: 1.1rem;
+    border-bottom: 1px solid var(--line);
+    font-weight: 500;
+    font-size: 1.02rem;
+    position: relative; z-index: 1;
+  }
+  h2 .step-num {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border: 1px solid rgba(180,112,63,0.5);
+    border-radius: 50%;
+    background: var(--glass-bg-strong);
+    box-shadow: 0 0 12px rgba(180,112,63,0.16);
+    font-family: var(--font-head);
+    font-size: .8rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  h2 .step-title {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 1.28rem;
+    letter-spacing: -0.005em;
+    color: var(--ink);
+  }
+
+  h3 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 1.08rem;
+    letter-spacing: -0.003em;
+    margin: 1.8rem 0 .7rem;
+    color: var(--ink);
+  }
+  h3:first-child { margin-top: 0; }
+
+  label {
+    display: block;
+    margin: 1.15rem 0 .4rem;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: .84rem;
+    letter-spacing: .002em;
+    color: var(--ink-soft);
+  }
+  label:first-of-type { margin-top: 0; }
+  label[style*="font-weight:normal"] {
+    font-size: .95rem;
+    color: var(--ink);
+    font-weight: 400 !important;
+  }
+
+  input[type=text], input[type=number], textarea, select {
+    width: 100%;
+    padding: .62rem .75rem;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-s);
+    box-sizing: border-box;
+    font-family: var(--font-sans);
+    font-size: .92rem;
+    color: var(--ink);
+    background: var(--glass-bg-strong);
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input[type=text]:focus, input[type=number]:focus, textarea:focus, select:focus,
+  input[type=file]:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  input[type=file] {
+    width: 100%;
+    font-family: var(--font-sans);
+    font-size: .85rem;
+    color: var(--ink-soft);
+    padding: .5rem 0;
+  }
+  input[type=file]::file-selector-button {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: .78rem;
+    letter-spacing: .02em;
+    color: var(--ink);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-s);
+    padding: .5rem .9rem;
+    margin-right: .8rem;
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  input[type=file]::file-selector-button:hover { border-color: var(--accent); background: var(--accent-soft); }
+  textarea { resize: vertical; }
+
+  input[type=radio], input[type=checkbox] { accent-color: var(--accent); }
+
+  button {
+    margin-top: .9rem;
+    padding: .7rem 1.4rem;
+    border: 1px solid var(--ink);
+    border-radius: 999px;
+    background: linear-gradient(120deg, var(--ink), #4a3a26);
+    color: var(--paper);
+    cursor: pointer;
+    font-family: var(--font-head);
+    font-weight: 600;
+    font-size: .86rem;
+    letter-spacing: .01em;
+    box-shadow: 0 10px 24px -12px rgba(43,36,25,0.5);
+    transition: background .2s ease, border-color .2s ease, transform .12s ease, box-shadow .2s ease;
+  }
+  button:hover {
+    background: linear-gradient(120deg, var(--accent), var(--accent-soft-c));
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px -12px rgba(180,112,63,0.55);
+  }
+  button:active { transform: translateY(1px); }
+  button.secondary {
+    background: var(--glass-bg-strong);
+    color: var(--ink);
+    border: 1px solid var(--glass-border);
+    box-shadow: none;
+  }
+  button.secondary:hover { background: rgba(255,255,255,0.8); border-color: var(--accent); color: var(--accent-dark); box-shadow: none; }
+  button:disabled, button:disabled:hover {
+    background: #ded8ca; border-color: #ded8ca; color: #948c7e; cursor: not-allowed; transform: none; box-shadow: none;
+  }
+
+  .msg { font-size: .88rem; padding: .6rem .85rem; border-radius: var(--radius-s); margin-top: .7rem; white-space: pre-wrap; }
+  .msg.ok { background: var(--ok-bg); color: var(--ok-fg); }
+  .msg.err { background: var(--err-bg); color: var(--err-fg); }
+
+  .question, .doc-row, .param-row { border-top: 1px solid var(--line); padding-top: .75rem; margin-top: .75rem; }
+  .doc-row { font-size: .92rem; }
+  .doc-row .req { color: var(--err-fg); font-size: .76rem; font-weight: 600; }
+  .doc-row .opt { color: var(--ink-faint); font-size: .76rem; }
+  .radio-group {
+    position: relative; display: inline-flex; gap: .2rem; margin-top: .5rem;
+    padding: .3rem; border-radius: 999px;
+    background: rgba(255,255,255,0.4); border: 1px solid var(--glass-border);
+  }
+  .radio-group::before {
+    content: ""; position: absolute; z-index: 1; top: .3rem; bottom: .3rem; left: .3rem;
+    width: calc(50% - .3rem); border-radius: 999px;
+    background: linear-gradient(120deg, var(--accent), var(--accent-soft-c));
+    box-shadow: 0 4px 16px -4px rgba(180,112,63,0.5);
+    transition: transform .35s cubic-bezier(.2,.9,.25,1);
+  }
+  .radio-group:has(label:nth-of-type(2) input:checked)::before { transform: translateX(100%); }
+  .radio-group label {
+    position: relative; z-index: 2; margin: 0 !important;
+    padding: .62rem 1.25rem; border-radius: 999px; cursor: pointer;
+    transition: color .3s ease;
+  }
+  .radio-group label:has(input:checked) { color: #fff6ec; }
+  .radio-group input[type=radio] { position: absolute; opacity: 0; pointer-events: none; }
+  small.hint { color: var(--ink-faint); font-size: .82rem; line-height: 1.55; }
   .param-row { display: grid; grid-template-columns: 1fr 140px; gap: .6rem; align-items: center; }
-  h3 { font-size: .95rem; margin: 1rem 0 .3rem; }
-  table.edit-table { width: 100%; border-collapse: collapse; margin-top: .3rem; font-size: .85rem; }
-  table.edit-table th { text-align: left; font-size: .78rem; color: #64717a; padding: .2rem .3rem; }
-  table.edit-table td { padding: .15rem .3rem; }
-  table.edit-table input, table.edit-table select { padding: .3rem; font-size: .85rem; }
+
+  table.edit-table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .85rem; }
+  table.edit-table th {
+    text-align: left; font-size: .7rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--ink-faint); padding: .35rem .4rem; border-bottom: 1px solid var(--line-strong);
+  }
+  table.edit-table td { padding: .3rem .4rem; border-bottom: 1px solid var(--line); }
+  table.edit-table tbody tr:hover { background: rgba(255,255,255,0.4); }
+  table.edit-table input, table.edit-table select { padding: .4rem .45rem; font-size: .85rem; }
   table.edit-table input[type=number] { width: 90px; }
   table.edit-table input[type=text] { width: 100%; min-width: 100px; }
-  button.small { margin: 0; padding: .25rem .5rem; font-size: .78rem; background: #a12626; }
-  button.secondary.small-add { margin-top: .4rem; padding: .35rem .7rem; font-size: .82rem; }
-  .note-box { font-size: .85rem; background: #fff8e6; color: #7a5b00; border-radius: 6px; padding: .5rem .7rem; margin-top: .5rem; white-space: pre-wrap; }
-  .note-box-warn { background: #fdeaea; color: #a12626; font-weight: 600; border: 1px solid #f3b8b8; }
+
+  button.small {
+    margin: 0; width: 1.9rem; height: 1.9rem; padding: 0; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: .95rem; font-weight: 400; border-radius: 50%;
+    background: transparent; color: var(--ink-faint); border: 1px solid var(--line-strong);
+  }
+  button.small:hover { background: var(--err-bg); color: var(--err-fg); border-color: var(--err-fg); }
+  button.secondary.small-add { margin-top: .5rem; padding: .4rem .8rem; font-size: .8rem; }
+
+  .note-box {
+    font-size: .85rem; background: var(--warn-bg); color: var(--warn-fg); border-radius: var(--radius-s);
+    padding: .65rem .85rem; margin-top: .6rem; white-space: pre-wrap; border: 1px solid #efe0bb;
+  }
+  .note-box-warn { background: var(--err-bg); color: var(--err-fg); font-weight: 600; border: 1px solid #eac6ba; }
+
   .comment-cell { min-width: 200px; }
   .comment-log { max-height: 90px; overflow-y: auto; margin-bottom: .3rem; font-size: .78rem; }
-  .comment-log div { padding: .1rem 0; }
-  .comment-log .log-tu { color: #1b2733; }
+  .comment-log div { padding: .15rem 0; }
+  .comment-log .log-tu { color: var(--ink); }
   .comment-log .log-tu::before { content: "🧑 "; }
-  .comment-log .log-ai { color: #1c6b3d; }
+  .comment-log .log-ai { color: var(--ok-fg); }
   .comment-log .log-ai::before { content: "🤖 "; }
-  .comment-log .log-err { color: #a12626; }
+  .comment-log .log-err { color: var(--err-fg); }
   .comment-log .log-err::before { content: "⚠️ "; }
-  .comment-input { width: 100%; font-size: .8rem !important; padding: .3rem !important; box-sizing: border-box; }
-  .affidabilita-badge { font-size: .78rem; white-space: nowrap; }
-  .osservazione-box { font-size: .85rem; border-radius: 6px; padding: .5rem .7rem; margin-top: .5rem; }
-  .osservazione-alta { background: #fdeaea; color: #a12626; border: 1px solid #f3b8b8; }
-  .osservazione-media { background: #fff8e6; color: #7a5b00; border: 1px solid #f0dca0; }
-  .osservazione-bassa { background: #eef3f6; color: #40515c; border: 1px solid #cdd9e0; }
-  #vociTable tr.voce-da-completare { background: #fff2cc; }
-  #vociTable tr.voce-da-completare input { background: #fffbe8; }
-  .file-list { display: flex; flex-wrap: wrap; gap: .35rem; margin: .4rem 0 .2rem; }
-  .file-chip { display: inline-flex; align-items: center; gap: .4rem; background: #eef3f6; color: #1b2733;
-    border: 1px solid #cdd9e0; border-radius: 999px; padding: .2rem .3rem .2rem .65rem; font-size: .78rem; max-width: 100%; }
+  .comment-input { width: 100%; font-size: .8rem !important; padding: .35rem .5rem !important; box-sizing: border-box; }
+  .affidabilita-badge { font-size: .78rem; white-space: nowrap; color: var(--ink-soft); }
+
+  .osservazione-box { font-size: .85rem; border-radius: var(--radius-s); padding: .6rem .85rem; margin-top: .6rem; }
+  .osservazione-alta { background: var(--err-bg); color: var(--err-fg); border: 1px solid #eac6ba; }
+  .osservazione-media { background: var(--warn-bg); color: var(--warn-fg); border: 1px solid #efe0bb; }
+  .osservazione-bassa { background: var(--bg); color: var(--ink-soft); border: 1px solid var(--line); }
+
+  #vociTable tr.voce-da-completare { background: #fbf3de; }
+  #vociTable tr.voce-da-completare input { background: #fffaee; }
+  #vociTable tfoot, .voceImporto { font-variant-numeric: tabular-nums; }
+
+  .file-list { display: flex; flex-wrap: wrap; gap: .4rem; margin: .55rem 0 .2rem; }
+  .file-chip {
+    display: inline-flex; align-items: center; gap: .5rem; background: var(--glass-bg-strong); color: var(--ink);
+    border: 1px solid var(--glass-border); border-radius: 999px; padding: .25rem .3rem .25rem .75rem;
+    font-size: .78rem; max-width: 100%;
+  }
   .file-chip span.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
-  .file-chip button { margin: 0; padding: 0; width: 1.2rem; height: 1.2rem; line-height: 1; border-radius: 50%;
-    background: #a12626; color: #fff; font-size: .78rem; font-weight: 700; cursor: pointer; flex: none; }
-  .file-chip button:hover { background: #7f1d1d; }
-  #uploadProgressWrap { margin-top: .7rem; }
-  #uploadProgressBar { width: 100%; height: 12px; background: #eef1f3; border-radius: 999px; overflow: hidden;
-    border: 1px solid #dbe2e8; }
-  #uploadProgressFill { height: 100%; width: 0%; background: #c0392b; border-radius: 999px;
-    transition: width .2s ease, background-color .4s ease; }
-  #uploadProgressFill.done { background: #1c6b3d; }
-  #uploadProgressLabel { display: block; margin-top: .25rem; }
+  .file-chip button {
+    margin: 0; padding: 0; width: 1.25rem; height: 1.25rem; line-height: 1; border-radius: 50%;
+    background: var(--ink-faint); color: var(--paper); font-size: .76rem; font-weight: 700; cursor: pointer; flex: none;
+    border: none;
+  }
+  .file-chip button:hover { background: var(--err-fg); }
+
+  #uploadProgressWrap { margin-top: .8rem; }
+  #uploadProgressBar {
+    width: 100%; height: 8px; background: var(--glass-bg-strong); border-radius: 999px; overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  #uploadProgressFill {
+    height: 100%; width: 0%; background: var(--accent); border-radius: 999px;
+    transition: width .2s ease, background-color .4s ease;
+  }
+  #uploadProgressFill.done { background: var(--ok-fg); }
+  #uploadProgressLabel { display: block; margin-top: .35rem; }
+
+  details { margin-top: 1.1rem; border-top: 1px dashed var(--line); padding-top: .9rem; }
+  summary {
+    cursor: pointer; font-weight: 600; font-size: .84rem; color: var(--ink-soft);
+    letter-spacing: .01em; list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; color: var(--accent); }
+  details[open] > summary::before { content: "▾ "; }
+  details[open] > summary { color: var(--ink); margin-bottom: .7rem; }
+  summary:hover { color: var(--accent-dark); }
+
+  #step5 p strong { font-family: var(--font-serif); font-size: 1.15rem; font-weight: 600; }
+  #step5 > p { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+
+  @media (max-width: 640px) {
+    body { padding: 2rem 1rem 4rem; }
+    section { padding: 1.4rem 1.1rem; }
+    .param-row { grid-template-columns: 1fr; align-items: start; }
+    .radio-group label { padding: .58rem .85rem; font-size: .88rem; }
+  }
 </style>
 </head>
 <body>
-<h1>Computo Metrico Estimativo — generazione automatica (MVP)</h1>
-<p><small class="hint">Copre finiture, strutture in elevazione, scavi e copertura. Per una ristrutturazione confronta
-stato di fatto e stato di progetto. Prezzario di default: selezione di riferimento tratta dal Prezzario Regione Lombardia 2022 (ufficiale, non sostituisce un prezzario di progetto specifico).</small></p>
+<canvas id="webgl-bg"></canvas>
+<div class="grid-overlay"></div>
+<div class="noise-vignette"></div>
+<div class="scanline"></div>
+
+<p class="eyebrow">Studio Pè · Estima</p>
+<h1><span class="word">Computo</span><span class="word">Metrico</span><span class="word">Estimativo</span><span class="tag">MVP</span></h1>
+<p class="lede"><small class="hint">Generazione automatica da elaborati architettonici: copre finiture, strutture in elevazione, scavi e copertura.
+Per una ristrutturazione confronta stato di fatto e stato di progetto. Prezzario di default: selezione di riferimento tratta dal Prezzario Regione Lombardia 2022 (ufficiale, non sostituisce un prezzario di progetto specifico).</small></p>
 
 <section id="step0">
-  <h2>1. Tipo di intervento</h2>
+  <h2><span class="step-num">1</span><span class="step-title">Tipo di intervento</span></h2>
   <div class="radio-group">
     <label style="font-weight:normal"><input type="radio" name="tipoIntervento" value="nuova_costruzione" checked> Nuova costruzione</label>
     <label style="font-weight:normal"><input type="radio" name="tipoIntervento" value="ristrutturazione"> Ristrutturazione</label>
@@ -81,7 +452,7 @@ stato di fatto e stato di progetto. Prezzario di default: selezione di riferimen
 </section>
 
 <section id="step1">
-  <h2>2. Elaborati grafici (PDF vettoriali, in scala, quotati)</h2>
+  <h2><span class="step-num">2</span><span class="step-title">Elaborati grafici (PDF vettoriali, in scala, quotati)</span></h2>
   <small class="hint">Per ogni riga puoi selezionare più file insieme (es. pianta + prospetti + sezioni): verranno
   uniti automaticamente in un unico documento nell'ordine in cui li selezioni. Importante: seleziona per primo
   il file la cui PRIMA pagina è la pianta quotata — è quella pagina che viene letta per riconoscere vani e
@@ -182,7 +553,7 @@ stato di fatto e stato di progetto. Prezzario di default: selezione di riferimen
 </section>
 
 <section id="step1b" style="display:none">
-  <h2>3. Vani, aperture ed elementi rilevati — verifica prima di procedere</h2>
+  <h2><span class="step-num">3</span><span class="step-title">Vani, aperture ed elementi rilevati — verifica prima di procedere</span></h2>
   <small class="hint">Il rilievo automatico da disegni CAD dettagliati può occasionalmente unire ambienti vicini o
   sbagliare qualche misura: controlla i valori qui sotto e correggili se necessario (ogni cella è modificabile,
   puoi aggiungere o eliminare righe) prima di procedere al calcolo dei prezzi. Per una ristrutturazione, il
@@ -277,7 +648,7 @@ stato di fatto e stato di progetto. Prezzario di default: selezione di riferimen
 </section>
 
 <section id="step2" style="display:none">
-  <h2>3. Capitolato (facoltativo) e prezzario</h2>
+  <h2><span class="step-num">4</span><span class="step-title">Capitolato (facoltativo) e prezzario</span></h2>
   <label>Testo del capitolato, se disponibile (incolla qui il contenuto)</label>
   <textarea id="capitolatoText" rows="4" placeholder="Se non lo incolli, ti farò le domande necessarie sulle finiture e sulla struttura."></textarea>
 
@@ -301,18 +672,18 @@ stato di fatto e stato di progetto. Prezzario di default: selezione di riferimen
 </section>
 
 <section id="step3" style="display:none">
-  <h2>4. Domande su materiali, finiture e struttura</h2>
+  <h2><span class="step-num">5</span><span class="step-title">Domande su materiali, finiture e struttura</span></h2>
   <div id="questionsContainer"></div>
 </section>
 
 <section id="step3b" style="display:none">
-  <h2>5. Parametri dimensionali (confermali o modificali)</h2>
+  <h2><span class="step-num">6</span><span class="step-title">Parametri dimensionali (confermali o modificali)</span></h2>
   <small class="hint">Non deducibili in modo affidabile dai soli elaborati grafici in questa versione: proposti con un valore tipico.</small>
   <div id="paramsContainer"></div>
 </section>
 
 <section id="step4" style="display:none">
-  <h2>6. Dati progetto</h2>
+  <h2><span class="step-num">7</span><span class="step-title">Dati progetto</span></h2>
   <label>Nome progetto</label><input type="text" id="nomeProgetto" />
   <label>Committente</label><input type="text" id="committente" />
   <label>Ubicazione</label><input type="text" id="ubicazione" />
@@ -321,7 +692,7 @@ stato di fatto e stato di progetto. Prezzario di default: selezione di riferimen
 </section>
 
 <section id="step5" style="display:none">
-  <h2>7. Computo metrico — verifica, correggi e commenta prima di scaricare</h2>
+  <h2><span class="step-num">8</span><span class="step-title">Computo metrico — verifica, correggi e commenta prima di scaricare</span></h2>
   <small class="hint">Ogni riga è modificabile a mano (descrizione, quantità, prezzo unitario): l'importo si ricalcola
   automaticamente. Nella colonna Commento puoi anche scrivere un'osservazione o una richiesta in linguaggio
   naturale (es. "raddoppia la quantità", "il prezzo reale è 65 €/m²", "questa voce non serve, eliminala") e premere
@@ -1260,6 +1631,135 @@ document.getElementById("btnGenerate").onclick = async () => {
     msgEl.className = "msg err";
   }
 };
+</script>
+
+<!-- ============================================================
+     Sfondo 3D/WebGL + feedback sonoro: puramente decorativi, non
+     interferiscono con la logica applicativa sopra (nessuna
+     dipendenza reciproca). Se Three.js non si carica (rete assente
+     o bloccata), lo sfondo resta semplicemente il colore di base
+     definito in CSS: nessun errore bloccante per il resto del sito.
+     ============================================================ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  if (typeof THREE === "undefined") return; // niente rete/CDN: sfondo resta il colore piatto, nessun problema
+  const canvas = document.getElementById("webgl-bg");
+  if (!canvas) return;
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const isNarrow = window.innerWidth < 720;
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  } catch (e) { return; }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera.position.set(0, 0.6, 7);
+
+  // Modellino wireframe a piani sovrapposti (massing architettonico), disegnato
+  // come uno schizzo a china: linee sottili bruno/bronzo, nessun bagliore acceso.
+  const group = new THREE.Group();
+  const inkColor = new THREE.Color(0x6b4a2c);
+  const bronzeColor = new THREE.Color(0xb4703f);
+  const floors = 7;
+  for (let i = 0; i < floors; i++) {
+    const w = 2.4 - i * 0.18;
+    const geo = new THREE.BoxGeometry(w, 0.42, w);
+    const edges = new THREE.EdgesGeometry(geo);
+    const t = i / (floors - 1);
+    const col = inkColor.clone().lerp(bronzeColor, t);
+    const mat = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.28 });
+    const line = new THREE.LineSegments(edges, mat);
+    line.position.y = i * 0.5 - 1.6;
+    group.add(line);
+  }
+  scene.add(group);
+
+  // Campo di particelle, tenue
+  const particleCount = isNarrow ? 220 : 500;
+  const positions = new Float32Array(particleCount * 3);
+  for (let i = 0; i < particleCount; i++) {
+    positions[i * 3] = (Math.random() - 0.5) * 24;
+    positions[i * 3 + 1] = (Math.random() - 0.5) * 14;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 20 - 4;
+  }
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const pMat = new THREE.PointsMaterial({ color: 0xb4703f, size: 0.026, transparent: true, opacity: 0.22 });
+  const particles = new THREE.Points(pGeo, pMat);
+  scene.add(particles);
+
+  // Griglia di base (foglio da disegno)
+  const gridHelper = new THREE.GridHelper(30, 30, 0xb4703f, 0xe7dcc6);
+  gridHelper.position.y = -2.3;
+  gridHelper.material.transparent = true;
+  gridHelper.material.opacity = 0.1;
+  scene.add(gridHelper);
+
+  let mouseX = 0, mouseY = 0;
+  if (!isNarrow) {
+    window.addEventListener("mousemove", (e) => {
+      mouseX = (e.clientX / window.innerWidth - 0.5);
+      mouseY = (e.clientY / window.innerHeight - 0.5);
+    });
+  }
+
+  let raf;
+  function animate(t) {
+    raf = requestAnimationFrame(animate);
+    group.rotation.y = t * 0.00016;
+    group.position.y = Math.sin(t * 0.0005) * 0.1;
+    particles.rotation.y = t * 0.00003;
+    if (!reduceMotion) {
+      camera.position.x += (mouseX * 1.2 - camera.position.x) * 0.02;
+      camera.position.y += (0.6 - mouseY * 0.9 - camera.position.y) * 0.02;
+    }
+    camera.lookAt(0, -0.3, 0);
+    renderer.render(scene, camera);
+  }
+  if (reduceMotion) {
+    renderer.render(scene, camera); // frame singolo statico, nessuna animazione continua
+  } else {
+    raf = requestAnimationFrame(animate);
+  }
+
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // --- breve feedback sonoro sui pulsanti principali (Web Audio API generato al
+  // volo, nessun file esterno): il primo click di un utente sblocca l'audio del
+  // browser, i successivi suonano un tono brevissimo. Puramente decorativo:
+  // se l'audio è bloccato dal browser non succede nulla di grave. ---
+  let actx;
+  function blip(freq) {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const osc = actx.createOscillator();
+      const gain = actx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, actx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.035, actx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + 0.2);
+      osc.connect(gain).connect(actx.destination);
+      osc.start();
+      osc.stop(actx.currentTime + 0.22);
+    } catch (e) { /* audio non disponibile: nessun problema, è solo decorativo */ }
+  }
+  document.querySelectorAll("button:not(.secondary):not(.small)").forEach((b) => {
+    b.addEventListener("click", () => blip(520));
+  });
+  document.querySelectorAll(".radio-group input[type=radio]").forEach((r, i) => {
+    r.addEventListener("change", () => blip(i === 0 ? 440 : 600));
+  });
+})();
 </script>
 </body>
 </html>
