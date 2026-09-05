@@ -4,7 +4,6 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Computo Metrico Automatico — MVP</title>
-<<<<<<< HEAD
 <script>
 // Applica il tema salvato PRIMA che la pagina venga disegnata, per evitare un
 // lampo del tema sbagliato al caricamento. Se qualcosa fallisce (localStorage
@@ -14,8 +13,6 @@ try {
   if (savedTheme === "dark") document.documentElement.setAttribute("data-theme", "dark");
 } catch (e) {}
 </script>
-=======
->>>>>>> 194bfe3a7cd25f9f2d7ea31a6c0e065eeb8bc966
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -49,7 +46,6 @@ try {
     --shadow-card: 0 24px 50px -28px rgba(74,54,30,0.30);
   }
 
-<<<<<<< HEAD
   /* --- tema scuro: stessa direzione tortora/bronzo, invertita --- */
   html[data-theme="dark"] {
     --bg: #1d1a17;
@@ -99,8 +95,6 @@ try {
   html[data-theme="dark"] .step-nav-theme .icon-sun { display: inline; }
   .step-nav-theme .icon-sun { display: none; }
 
-=======
->>>>>>> 194bfe3a7cd25f9f2d7ea31a6c0e065eeb8bc966
   * { box-sizing: border-box; }
 
   html, body { background: var(--bg); }
@@ -109,18 +103,13 @@ try {
     font-family: var(--font-sans);
     max-width: 900px;
     margin: 0 auto;
-<<<<<<< HEAD
     padding: calc(3rem + 52px) 1.5rem 5rem;
-=======
-    padding: 3rem 1.5rem 5rem;
->>>>>>> 194bfe3a7cd25f9f2d7ea31a6c0e065eeb8bc966
     color: var(--ink);
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     position: relative;
   }
 
-<<<<<<< HEAD
   /* --- barra fissa di navigazione a step --- */
   #stepNav {
     position: fixed; top: 0; left: 0; right: 0; z-index: 30;
@@ -174,8 +163,6 @@ try {
     section.reveal-init { opacity: 1; transform: none; transition: none; }
   }
 
-=======
->>>>>>> 194bfe3a7cd25f9f2d7ea31a6c0e065eeb8bc966
   /* --- fixed atmospheric layers: WebGL canvas + blueprint grid + vignette + scanline --- */
   #webgl-bg { position: fixed; inset: 0; z-index: -4; }
   .grid-overlay {
@@ -520,7 +507,6 @@ try {
     border: none;
   }
   .file-chip button:hover { background: var(--err-fg); }
-<<<<<<< HEAD
   .file-chip .file-thumb {
     width: 1.7rem; height: 1.7rem; border-radius: 50%; overflow: hidden; flex: none;
     display: inline-flex; align-items: center; justify-content: center;
@@ -538,8 +524,6 @@ try {
   .history-row .history-meta { color: var(--ink-soft); font-size: .82rem; margin-top: .1rem; }
   .history-row .history-actions { display: flex; gap: .5rem; flex: none; }
   .history-row .history-actions button { padding: .4rem .9rem; font-size: .78rem; }
-=======
->>>>>>> 194bfe3a7cd25f9f2d7ea31a6c0e065eeb8bc966
 
   #uploadProgressWrap { margin-top: .8rem; }
   #uploadProgressBar {
@@ -568,11 +552,7 @@ try {
   #step5 > p { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 
   @media (max-width: 640px) {
-<<<<<<< HEAD
     body { padding: calc(2rem + 46px) 1rem 4rem; }
-=======
-    body { padding: 2rem 1rem 4rem; }
->>>>>>> 194bfe3a7cd25f9f2d7ea31a6c0e065eeb8bc966
     section { padding: 1.4rem 1.1rem; }
     .param-row { grid-template-columns: 1fr; align-items: start; }
     .radio-group label { padding: .58rem .85rem; font-size: .88rem; }
@@ -1829,7 +1809,6 @@ document.getElementById("btnGenerate").onclick = async () => {
   camera.position.set(0, 0.6, 7);
 
   // Modellino wireframe a piani sovrapposti (massing architettonico), disegnato
-<<<<<<< HEAD
   // come uno schizzo a china sul tema chiaro, o come un modello che emerge dal
   // buio con bagliore bronzo sul tema scuro. I colori/opacità si aggiornano al
   // volo quando l'utente cambia tema (vedi setWebglTheme più sotto).
@@ -1841,25 +1820,13 @@ document.getElementById("btnGenerate").onclick = async () => {
 
   const group = new THREE.Group();
   const lineMats = [];
-=======
-  // come uno schizzo a china: linee sottili bruno/bronzo, nessun bagliore acceso.
-  const group = new THREE.Group();
-  const inkColor = new THREE.Color(0x6b4a2c);
-  const bronzeColor = new THREE.Color(0xb4703f);
->>>>>>> 194bfe3a7cd25f9f2d7ea31a6c0e065eeb8bc966
   const floors = 7;
   for (let i = 0; i < floors; i++) {
     const w = 2.4 - i * 0.18;
     const geo = new THREE.BoxGeometry(w, 0.42, w);
     const edges = new THREE.EdgesGeometry(geo);
-<<<<<<< HEAD
     const mat = new THREE.LineBasicMaterial({ color: 0xb4703f, transparent: true, opacity: 0.28 });
     lineMats.push({ mat, t: i / (floors - 1) });
-=======
-    const t = i / (floors - 1);
-    const col = inkColor.clone().lerp(bronzeColor, t);
-    const mat = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.28 });
->>>>>>> 194bfe3a7cd25f9f2d7ea31a6c0e065eeb8bc966
     const line = new THREE.LineSegments(edges, mat);
     line.position.y = i * 0.5 - 1.6;
     group.add(line);
@@ -1887,7 +1854,6 @@ document.getElementById("btnGenerate").onclick = async () => {
   gridHelper.material.opacity = 0.1;
   scene.add(gridHelper);
 
-<<<<<<< HEAD
   function applyWebglTheme(dark) {
     const cfg = dark ? THEME_WEBGL.dark : THEME_WEBGL.light;
     const inkC = new THREE.Color(cfg.ink);
@@ -1905,8 +1871,6 @@ document.getElementById("btnGenerate").onclick = async () => {
   applyWebglTheme(isDarkNow());
   window.__estimaSetWebglTheme = applyWebglTheme; // richiamata dall'interruttore tema più sotto
 
-=======
->>>>>>> 194bfe3a7cd25f9f2d7ea31a6c0e065eeb8bc966
   let mouseX = 0, mouseY = 0;
   if (!isNarrow) {
     window.addEventListener("mousemove", (e) => {
@@ -1968,7 +1932,6 @@ document.getElementById("btnGenerate").onclick = async () => {
   });
 })();
 </script>
-<<<<<<< HEAD
 
 <!-- ============================================================
      Animazioni di comparsa allo scroll: puramente visive, si limitano
@@ -2808,7 +2771,5 @@ function renderProjectHistoryPanel() {
   }
 })();
 </script>
-=======
->>>>>>> 194bfe3a7cd25f9f2d7ea31a6c0e065eeb8bc966
 </body>
 </html>
