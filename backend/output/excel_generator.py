@@ -128,7 +128,10 @@ def build_excel(voci: list[ComputoVoce], meta: ProjectMeta, out_path: str,
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
-    ws.freeze_panes = f"A{header_row + 1}"
+    # NOTA: qui c'era prima ws.freeze_panes, per bloccare titolo/intestazione in
+    # alto durante lo scroll (comportamento standard per fogli tabellari lunghi).
+    # Rimosso su segnalazione di Franco: preferisce che il foglio scorra tutto
+    # insieme, senza righe bloccate in alto.
     wb.save(out_path)
     return out_path
 
