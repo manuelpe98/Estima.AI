@@ -40,7 +40,10 @@ from .pipeline import (
     compute_voci, build_files_from_voci,
 )
 from .prezzario import db as prezzario_db
+<<<<<<< HEAD
 from .prezzario import catalogo_data
+=======
+>>>>>>> 194bfe3a7cd25f9f2d7ea31a6c0e065eeb8bc966
 from .prezzario.seed_data import REFERENCE_CATEGORIA_SOTTOTIPO, VOCI_SEMPRE_TENTATE
 from .intake import required_documents, TIPI_INTERVENTO
 from .parametri_engine import PARAMETRI
