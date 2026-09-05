@@ -142,8 +142,42 @@ def test_pdf_non_conforme_rifiutato():
     Path(bad_path).unlink(missing_ok=True)
 
 
+def test_tavola_con_piu_piani():
+    print("\n" + "=" * 60)
+    print("TEST 4: tavola con più piani affiancati (piano terra + piano primo)")
+    print("=" * 60)
+    from backend.pipeline import extract_quantities
+    res = extract_quantities(tipo_intervento="nuova_costruzione",
+                              pdf_progetto_path=str(DIR / "sample_multi_plan.pdf"))
+    assert res.ok, res.errors
+
+    found = {r.label.upper(): r for r in res.rooms}
+    assert len(found) == 4, f"Attesi 4 vani (2 per piano), trovati {len(found)}"
+    print("-- Piano assegnato a ciascun vano --")
+    for r in res.rooms:
+        print(f"  {r.label}: area={r.area_m2} m2  piano={r.piano}")
+    assert found["SOGGIORNO"].piano == "TERRA"
+    assert found["CUCINA"].piano == "TERRA"
+    assert found["CAMERA"].piano == "PRIMO"
+    assert found["BAGNO"].piano == "PRIMO"
+    print("OK: ogni vano è stato assegnato al piano giusto in base al titolo più vicino.")
+
+    # Il sedime/perimetro deve venire SOLO dal piano terra (32 m2 / 24 m, vedi
+    # generate_sample_plan.build_multi_plan): sommare anche il piano primo
+    # (28 m2 in più) darebbe 60 m2, un sedime quasi doppio di quello reale.
+    assert approx(res.footprint_area_m2, 32.0), res.footprint_area_m2
+    assert approx(res.perimetro_esterno_m, 24.0), res.perimetro_esterno_m
+    print(f"OK: sedime={res.footprint_area_m2} m2 e perimetro={res.perimetro_esterno_m} m calcolati "
+          "SOLO dal piano terra, non sommando anche il piano primo.")
+
+    assert any("più piani sullo stesso foglio" in n for n in res.note_metodologiche)
+    assert any("SOLO i vani assegnati al piano terra" in n for n in res.note_metodologiche)
+    print("OK: le note metodologiche spiegano la separazione automatica per piano.")
+
+
 if __name__ == "__main__":
     test_nuova_costruzione()
     test_ristrutturazione()
     test_pdf_non_conforme_rifiutato()
+    test_tavola_con_piu_piani()
     print("\n=== TUTTI I TEST SUPERATI ===")

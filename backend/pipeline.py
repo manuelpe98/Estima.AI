@@ -26,7 +26,7 @@ from .pdf_validation import validate_pdf, find_scale_on_page, detect_empirical_s
 from .geometry_engine import (
     rooms_with_polygons, extract_openings, extract_tagged_elements, extract_dimensioned_openings,
     extract_building_footprint_m2, extract_building_perimeter_m, merge_shared_rooms, extract_piscina,
-    ROOM_LABEL_HINTS, DOOR_HEIGHT_RANGE_CM, detect_multiple_plans_on_page,
+    ROOM_LABEL_HINTS, DOOR_HEIGHT_RANGE_CM, detect_multiple_plans_on_page, GROUND_FLOOR_LABELS,
 )
 from .capitolato_engine import missing_questions
 from .parametri_engine import merge_parametri
@@ -197,14 +197,14 @@ def extract_quantities(
     piani_sulla_tavola = detect_multiple_plans_on_page(doc[0])
     if len(piani_sulla_tavola) > 1:
         result.note_metodologiche.append(
-            "ATTENZIONE: questa tavola sembra contenere più piani sullo stesso foglio "
+            "Questa tavola contiene più piani sullo stesso foglio "
             f"({', '.join('piano ' + p.lower() for p in piani_sulla_tavola)}), come è normale nella prassi "
-            "professionale per progetti di piccole dimensioni. Il rilievo automatico di questa versione tratta "
-            "però l'INTERA pagina come un'unica pianta: le etichette dei vani di piani diversi vengono lette "
-            "tutte insieme e un'area o un perimetro può risultare associato al piano sbagliato o duplicato tra "
-            "piani (es. una piscina o un vano con lo stesso nome disegnati su più livelli). Verifica con "
-            "particolare attenzione OGNI area/perimetro nel passaggio di revisione prima di procedere: se "
-            "possibile, per un rilievo più affidabile carica ciascun piano come pagina/file separato."
+            "professionale per progetti di piccole dimensioni: ogni vano rilevato è stato assegnato al titolo di "
+            "piano scritto più vicino sulla pagina (vedi la colonna 'Piano' nella tabella dei vani qui sotto). È "
+            "una separazione automatica basata sulla posizione, non certa al 100% su impaginazioni particolarmente "
+            "insolite (titoli mancanti o molto distanti dalla pianta a cui si riferiscono): verifica comunque il "
+            "piano assegnato a ciascun vano nel passaggio di revisione, specialmente per vani vicini al confine "
+            "tra due piante."
         )
     lp = legend_page if (legend_page is not None and legend_page < doc.page_count) else None
     rooms, room_polys = rooms_with_polygons(doc, scale_pagina_piano, plan_page=0)
@@ -244,8 +244,43 @@ def extract_quantities(
                 "riconoscibili accanto ai varchi: porte e finestre non sono state rilevate automaticamente. "
                 "Aggiungile a mano nel passaggio di verifica."
             )
-    footprint = extract_building_footprint_m2(room_polys, scale_pagina_piano)
-    perimetro_esterno = extract_building_perimeter_m(room_polys, scale_pagina_piano)
+    # --- Sedime/perimetro: se la tavola contiene più piani, si usano SOLO i
+    # vani del piano a terra, non l'intera pagina — sommare i vani di piani
+    # diversi disegnati uno accanto all'altro (non sovrapposti nello spazio
+    # della pagina) gonfierebbe enormemente sedime e perimetro, come se ogni
+    # piano fosse un corpo di fabbrica separato. Gli altri piani continuano
+    # comunque a contribuire normalmente a pavimenti/pareti/porte/impianti
+    # tramite `rooms` (usato invariato più sotto in compute_voci/build_computo). ---
+    footprint_rooms_polys = room_polys
+    if len(piani_sulla_tavola) > 1:
+        piano_terra_match = [p for p in piani_sulla_tavola if p in GROUND_FLOOR_LABELS]
+        if piano_terra_match:
+            piano_terra = piano_terra_match[0]
+            solo_piano_terra = [poly for r, poly in zip(rooms, room_polys) if r.piano == piano_terra]
+            if solo_piano_terra:
+                footprint_rooms_polys = solo_piano_terra
+                result.note_metodologiche.append(
+                    f"Il sedime edificio e il perimetro esterno sono stati calcolati usando SOLO i vani assegnati "
+                    f"al piano terra (piano '{piano_terra.lower()}'), non l'intera tavola con più piani."
+                )
+            else:
+                result.note_metodologiche.append(
+                    f"ATTENZIONE: la tavola indica un piano a terra ('{piano_terra.lower()}'), ma nessun vano "
+                    "rilevato è stato assegnato a quel piano (probabile titolo isolato, lontano dai vani a cui si "
+                    "riferisce): sedime edificio e perimetro esterno sono stati calcolati sommando i vani di TUTTI "
+                    "i piani presenti sul foglio — quasi certamente sovrastimati. Correggi manualmente questi "
+                    "valori nel passaggio di revisione, o ricarica la pianta del piano terra come file separato."
+                )
+        else:
+            result.note_metodologiche.append(
+                "ATTENZIONE: la tavola contiene più piani ma nessuno è etichettato come piano terra/terreno/"
+                "rialzato: non è stato possibile individuare quale pianta rappresenta il sedime a terra, quindi "
+                "sedime edificio e perimetro esterno sono stati calcolati sommando i vani di TUTTI i piani "
+                "presenti sul foglio — molto probabilmente sovrastimati. Correggi manualmente questi valori nel "
+                "passaggio di revisione, o ricarica la pianta del piano terra come file separato."
+            )
+    footprint = extract_building_footprint_m2(footprint_rooms_polys, scale_pagina_piano)
+    perimetro_esterno = extract_building_perimeter_m(footprint_rooms_polys, scale_pagina_piano)
     roof_area = _extract_roof_area(list(zip(rooms, room_polys)))
     doc.close()
 
