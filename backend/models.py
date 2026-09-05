@@ -96,9 +96,11 @@ class ComputoVoce:
     # True per una voce che il sistema NON può quantificare/prezzare in modo
     # affidabile dai soli elaborati caricati (es. opere accessorie non
     # rappresentate in pianta, o misurabili solo con dati che il rilievo
-    # automatico non ha): la riga viene comunque generata, con quantità e
-    # prezzo a 0, per garantire che la VOCE non manchi dal computo — ma va
-    # evidenziata (colore) e completata a mano da chi rivede il computo.
+    # automatico non ha): la riga viene comunque generata, con quantità a 0
+    # (il prezzo, quando la voce di prezzario abbinata ne ha uno, viene invece
+    # mostrato come riferimento di partenza anziché azzerato), per garantire
+    # che la VOCE non manchi dal computo — ma va evidenziata (colore) e
+    # completata a mano da chi rivede il computo.
     da_completare: bool = False
     # Provenienza del dato (da NON mischiare tra loro, richiesta esplicita
     # dell'utente): in che modo il sistema è arrivato a questa quantità/prezzo,

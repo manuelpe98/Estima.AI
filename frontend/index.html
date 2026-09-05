@@ -23,7 +23,7 @@ try {
     --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
     --bg: #f2ebdc;
     --paper: #fffcf6;
-    --glass-bg: rgba(255,252,246,0.55);
+    --glass-bg: rgba(255,252,246,0.88);
     --glass-bg-strong: rgba(255,255,255,0.62);
     --glass-border: rgba(74,54,30,0.16);
     --ink: #2b2419;
@@ -50,7 +50,7 @@ try {
   html[data-theme="dark"] {
     --bg: #1d1a17;
     --paper: #2a251f;
-    --glass-bg: rgba(238,228,211,0.05);
+    --glass-bg: rgba(35,30,25,0.88);
     --glass-bg-strong: rgba(255,255,255,0.07);
     --glass-border: rgba(238,228,211,0.14);
     --ink: #f4ede1;
@@ -163,7 +163,11 @@ try {
     section.reveal-init { opacity: 1; transform: none; transition: none; }
   }
 
-  /* --- fixed atmospheric layers: WebGL canvas + blueprint grid + vignette + scanline --- */
+  /* --- fixed atmospheric layers: WebGL canvas + blueprint grid + vignette ---
+     (c'era anche una "scanline" animata, una linea orizzontale che attraversava
+     lentamente la pagina: rimossa perché, essendo dietro a pannelli comunque un
+     po' trasparenti, si vedeva come una fastidiosa striscia colorata che
+     attraversava il contenuto — segnalato da Franco.) */
   #webgl-bg { position: fixed; inset: 0; z-index: -4; }
   .grid-overlay {
     position: fixed; inset: 0; z-index: -3; pointer-events: none;
@@ -178,14 +182,6 @@ try {
     position: fixed; inset: 0; z-index: -2; pointer-events: none;
     background: radial-gradient(ellipse at 50% 0%, rgba(242,235,220,0) 0%, rgba(242,235,220,0.15) 55%, rgba(242,235,220,0.6) 100%);
   }
-  .scanline {
-    position: fixed; left: 0; right: 0; height: 2px; z-index: -1; pointer-events: none;
-    background: linear-gradient(90deg, transparent, rgba(180,112,63,0.25), transparent);
-    animation: scan 9s linear infinite;
-    opacity: .6;
-  }
-  @keyframes scan { 0% { top: -2%; } 100% { top: 102%; } }
-  @media (prefers-reduced-motion: reduce) { .scanline { animation: none; display: none; } }
 
   .eyebrow {
     display: inline-flex; align-items: center; gap: .55rem;
@@ -254,13 +250,20 @@ try {
 
   /* --- glass section panels --- */
   section {
+    /* NOTA: qui c'era prima anche backdrop-filter (l'effetto "vetro smerigliato"
+       sull'immagine 3D di sfondo). Rimosso deliberatamente: su form lunghi con
+       molte righe (es. il computo con tante voci) obbligava il browser a
+       rifare continuamente la sfocatura durante lo scroll, con il risultato
+       di uno scroll che sembrava bloccato — e in alcuni browser può anche
+       impedire l'apertura corretta dei menu a tendina nativi (<select>)
+       dentro alla sezione, come nel prezzario di riferimento. Lo sfondo resta
+       comunque leggermente trasparente (vedi --glass-bg, reso più opaco per
+       compensare l'assenza della sfocatura), solo senza l'effetto sfocato. */
     position: relative;
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     border-radius: var(--radius-m);
     box-shadow: 0 0 0 1px rgba(255,255,255,0.45) inset, var(--shadow-card);
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
     padding: 2rem clamp(1.2rem, 4vw, 2.4rem);
     margin-bottom: 1.9rem;
     overflow: hidden;
@@ -535,6 +538,16 @@ try {
     transition: width .2s ease, background-color .4s ease;
   }
   #uploadProgressFill.done { background: var(--ok-fg); }
+  #uploadProgressFill.in-elaborazione {
+    background-image: linear-gradient(135deg, var(--accent) 25%, var(--accent-soft-c) 25%, var(--accent-soft-c) 50%,
+      var(--accent) 50%, var(--accent) 75%, var(--accent-soft-c) 75%, var(--accent-soft-c) 100%);
+    background-size: 28px 28px;
+    animation: uploadStripe 1s linear infinite;
+  }
+  @keyframes uploadStripe { from { background-position: 0 0; } to { background-position: 28px 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    #uploadProgressFill.in-elaborazione { animation: none; opacity: .7; }
+  }
   #uploadProgressLabel { display: block; margin-top: .35rem; }
 
   details { margin-top: 1.1rem; border-top: 1px dashed var(--line); padding-top: .9rem; }
@@ -563,7 +576,6 @@ try {
 <canvas id="webgl-bg"></canvas>
 <div class="grid-overlay"></div>
 <div class="noise-vignette"></div>
-<div class="scanline"></div>
 
 <p class="eyebrow">Studio Pè · Estima</p>
 <h1><span class="word">Computo</span><span class="word">Metrico</span><span class="word">Estimativo</span><span class="tag">MVP</span></h1>
@@ -957,9 +969,20 @@ function xhrUpload(url, formData, onProgress) {
   });
 }
 
-// Barra di avanzamento del caricamento: rossa durante il caricamento,
-// diventa verde solo a caricamento riuscito e concluso (richiesto per i file
+// Barra di avanzamento del caricamento: bronzo durante il caricamento,
+// diventa verde solo a caricamento riuscito e CONCLUSO (richiesto per i file
 // pesanti, dove l'invio può richiedere tempo su connessioni lente).
+//
+// IMPORTANTE: la percentuale qui riflette solo i byte INVIATI al server, non
+// il lavoro che il server fa dopo (validazione del PDF, poi estrazione di
+// vani/aperture/elementi, che può richiedere diversi secondi sui disegni più
+// complessi). Se si lasciasse salire fino al 100% appena finito l'invio, la
+// barra resterebbe ferma al 100% per tutto quel tempo di elaborazione —
+// sembrerebbe bloccata, anche se in realtà sta ancora lavorando (segnalato
+// da Franco: "sembra che si sia impallato" tra la fase 2 e la fase 3). Per
+// questo update() non supera mai il 96% e passa a un'animazione a righe con
+// l'etichetta "elaborazione in corso": il 100% vero e proprio (classe
+// "done") si vede SOLO quando la fase successiva si apre davvero.
 const uploadProgress = {
   wrap: null, fill: null, label: null,
   start(totalBytes) {
@@ -967,7 +990,7 @@ const uploadProgress = {
     this.fill = document.getElementById("uploadProgressFill");
     this.label = document.getElementById("uploadProgressLabel");
     this.totalBytes = totalBytes;
-    this.fill.classList.remove("done");
+    this.fill.classList.remove("done", "in-elaborazione");
     this.fill.style.width = "0%";
     this.label.textContent = "Caricamento: 0%";
     this.wrap.style.display = "block";
@@ -975,17 +998,29 @@ const uploadProgress = {
   update(bytesSent) {
     if (!this.totalBytes) return;
     const pct = Math.min(100, Math.round((bytesSent / this.totalBytes) * 100));
-    this.fill.style.width = `${pct}%`;
-    this.label.textContent = `Caricamento: ${pct}%`;
+    if (pct >= 100) {
+      // Tutti i byte sono stati inviati, ma la risposta dal server (con il
+      // risultato vero e proprio) non è ancora arrivata: mostriamo che si sta
+      // ancora lavorando invece di un 100% fermo e ambiguo.
+      this.fill.classList.add("in-elaborazione");
+      this.fill.style.width = "96%";
+      this.label.textContent = "Caricamento completato, elaborazione in corso...";
+    } else {
+      this.fill.classList.remove("in-elaborazione");
+      this.fill.style.width = `${pct}%`;
+      this.label.textContent = `Caricamento: ${pct}%`;
+    }
   },
   done() {
+    this.fill.classList.remove("in-elaborazione");
     this.fill.classList.add("done");
     this.fill.style.width = "100%";
     this.label.textContent = "Caricamento completato";
   },
   error(msg) {
-    // resta rossa (non aggiunge la classe "done"): indica visivamente che il
-    // caricamento non si è concluso con successo
+    // resta del colore "in corso" (non aggiunge la classe "done"): indica
+    // visivamente che il caricamento non si è concluso con successo
+    this.fill.classList.remove("in-elaborazione");
     this.label.textContent = msg || "Caricamento interrotto per un errore";
   },
 };
@@ -1896,6 +1931,24 @@ document.getElementById("btnGenerate").onclick = async () => {
     renderer.render(scene, camera); // frame singolo statico, nessuna animazione continua
   } else {
     raf = requestAnimationFrame(animate);
+    // Il form è lungo (8 passaggi): una volta che l'utente ha scrollato ben
+    // oltre l'intestazione iniziale, lo sfondo 3D animato non si vede quasi
+    // più (resta dietro pannelli ormai opachi), ma continuerebbe comunque a
+    // occupare CPU/GPU ad ogni frame. Mettendolo in pausa quando si scrolla
+    // in profondità (e riprendendolo se si torna su) si toglie carico al
+    // browser proprio nelle sezioni più lunghe, senza cambiare nulla di
+    // visibile per l'utente.
+    let animInPausa = false;
+    window.addEventListener("scroll", () => {
+      const lontanoDallInizio = window.scrollY > window.innerHeight * 1.5;
+      if (lontanoDallInizio && !animInPausa) {
+        animInPausa = true;
+        cancelAnimationFrame(raf);
+      } else if (!lontanoDallInizio && animInPausa) {
+        animInPausa = false;
+        raf = requestAnimationFrame(animate);
+      }
+    }, { passive: true });
   }
 
   window.addEventListener("resize", () => {

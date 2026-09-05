@@ -11,8 +11,10 @@ TITLE_FONT = Font(bold=True, size=14)
 THIN = Side(style="thin", color="BFBFBF")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 # Evidenzia le voci che il sistema non può quantificare/prezzare da solo
-# (ComputoVoce.da_completare): quantità e prezzo a 0, da completare a mano
-# prima di considerare il computo definitivo — vedi anche la nota di riga.
+# (ComputoVoce.da_completare): quantità a 0 (il prezzo, quando disponibile nel
+# prezzario abbinato, è comunque indicato a titolo di riferimento), da
+# completare a mano prima di considerare il computo definitivo — vedi anche
+# la nota di riga.
 DA_COMPLETARE_FILL = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
 DA_COMPLETARE_FONT = Font(bold=True, color="7F6000")
 # Avviso critico (es. "nessun vano riconosciuto"): sfondo rosso tenue, testo in
@@ -84,7 +86,8 @@ def build_excel(voci: list[ComputoVoce], meta: ProjectMeta, out_path: str,
         if da_completare:
             righe_da_completare += 1
             note_cell = (("⚠ DA COMPLETARE A MANO — " + note_cell) if note_cell
-                         else "⚠ DA COMPLETARE A MANO: quantità e prezzo non calcolabili da questa pianta.")
+                         else "⚠ DA COMPLETARE A MANO: quantità non calcolabile da questa pianta "
+                              "(prezzo di riferimento dal prezzario, dove disponibile).")
         origine_label, origine_emoji = ORIGINE_INFO.get(getattr(v, "origine", "assunta"), ("", ""))
         affidabilita_cell = f"{origine_emoji} {origine_label}".strip()
         values = [v.numero, v.codice, v.categoria, v.descrizione, v.unita_misura,

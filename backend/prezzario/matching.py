@@ -106,9 +106,16 @@ def build_computo(
 
     def add_placeholder(v, note_riga):
         # Come add(), ma per una voce che va SEMPRE elencata anche se il sistema
-        # non può calcolarne la quantità: quantità e prezzo restano a 0 e la riga
-        # è marcata da_completare, per essere evidenziata nei file generati e
-        # completata a mano invece di mancare silenziosamente dal computo.
+        # non può calcolarne la quantità: la quantità resta a 0 (davvero non
+        # calcolabile) e la riga è marcata da_completare, per essere evidenziata
+        # nei file generati e completata a mano invece di mancare silenziosamente
+        # dal computo. Il PREZZO invece non viene azzerato: si usa il prezzo della
+        # voce di prezzario abbinata (v["prezzo"]), come riferimento di partenza —
+        # altrimenti l'utente si trova una riga con prezzo 0 senza sapere se
+        # significa "nessun dato disponibile" o "gratis" (segnalato da Franco:
+        # molte voci restavano senza alcun prezzo indicativo). Con quantità 0 il
+        # totale calcolato non cambia comunque (0 x qualsiasi prezzo = 0): è solo
+        # un aiuto in più per chi deve completare la riga a mano.
         # Origine sempre "non_disponibile": non è un dato assunto, è dichiaratamente
         # assente.
         nonlocal n
@@ -117,7 +124,7 @@ def build_computo(
         categoria_label = CATEGORIA_LABELS.get(v["categoria"], v["categoria"].replace("_", " ").capitalize())
         righe.append(ComputoVoce(n, v["codice"], categoria_label,
                                   v["descrizione"], v["unita_misura"], 0.0,
-                                  0.0, note=note_riga, da_completare=True, origine="non_disponibile"))
+                                  v["prezzo"], note=note_riga, da_completare=True, origine="non_disponibile"))
         n += 1
 
     def add_misurata_da_completare(v, quantita, note_riga, origine="derivata"):
@@ -129,13 +136,17 @@ def build_computo(
         # quantità positive; diversamente da add_placeholder(), non azzera la
         # quantità: la riga resta comunque "da_completare" per evidenziare che il
         # prezzo (e la scelta del materiale in descrizione) va confermato a mano.
+        # Il prezzo usa comunque v["prezzo"] (la voce di prezzario abbinata) come
+        # riferimento anziché restare a 0: qui la quantità è reale, quindi un
+        # prezzo di riferimento incide anche sul totale calcolato — più utile di
+        # un totale che sottostima silenziosamente il costo di questa voce.
         nonlocal n
         if v is None or quantita <= 0:
             return
         categoria_label = CATEGORIA_LABELS.get(v["categoria"], v["categoria"].replace("_", " ").capitalize())
         righe.append(ComputoVoce(n, v["codice"], categoria_label,
                                   v["descrizione"], v["unita_misura"], round(quantita, 2),
-                                  0.0, note=note_riga, da_completare=True, origine=origine))
+                                  v["prezzo"], note=note_riga, da_completare=True, origine=origine))
         n += 1
 
     pav_tipo = answers.get("pavimenti", "Altro (specificare a parte)")
@@ -537,9 +548,10 @@ def build_computo(
     # reale le richiede comunque, e se l'estrazione geometrica è fallita è ancora
     # più importante ricordarle esplicitamente invece di lasciare il computo privo
     # di ogni riferimento), come promemoria esplicito di cosa il rilievo NON copre
-    # — invece di ometterle in silenzio: quantità e prezzo restano a 0, da
-    # completare a mano (righe marcate da_completare, evidenziate nei file
-    # generati).
+    # — invece di ometterle in silenzio: quantità a 0 (non misurabile dalla sola
+    # pianta), da completare a mano (righe marcate da_completare, evidenziate nei
+    # file generati). Il prezzo, quando la voce di prezzario abbinata ne ha uno,
+    # viene comunque mostrato come riferimento di partenza (v. add_placeholder).
     add_placeholder(_find_voce(voci, "scala_esterna", "standard"),
                      "Individuata come possibile presenza in pianta (elemento non taggato con quota affidabile): "
                      "misura e valorizza a mano")
@@ -560,8 +572,9 @@ def build_computo(
                      "sottoservizi e dalla planimetria generale, non dalla sola pianta di progetto: verifica e valorizza a mano")
     note.append(
         "Sono state aggiunte 7 voci segnaposto (scala esterna, scale interne, recinzione, smaltimento acque, "
-        "pavimentazioni esterne, camerette di ispezione, pozzo perdente) con quantità e prezzo a 0, evidenziate nei "
-        "file generati: sono opere spesso presenti in un progetto reale ma che il rilievo automatico da questa sola "
+        "pavimentazioni esterne, camerette di ispezione, pozzo perdente) con quantità a 0 (e, dove disponibile, il "
+        "prezzo di riferimento del prezzario), evidenziate nei file generati: sono opere spesso presenti in un "
+        "progetto reale ma che il rilievo automatico da questa sola "
         "pianta non può misurare con affidabilità (richiedono la planimetria generale, la rete sottoservizi o le "
         "sezioni quotate) — completale a mano prima di considerare il computo definitivo, o eliminale se non "
         "pertinenti a questo progetto."
@@ -601,10 +614,10 @@ def build_computo(
                              "a mano in base al prodotto/materiale specifico indicato nella relazione")
         note.append(
             f"Dalla relazione acustica caricata sono stati individuati {len(acustica_materiali)} riferimenti a "
-            "materiali/lavorazioni per requisiti acustici: sono stati aggiunti come voci segnaposto (quantità e "
-            "prezzo a 0) — un testo descrittivo non permette di risalire in modo affidabile a una quantità "
-            "reale, quindi vanno misurati e prezzati a mano, o eliminati se il materiale non è pertinente a "
-            "questa parte del progetto."
+            "materiali/lavorazioni per requisiti acustici: sono stati aggiunti come voci segnaposto (quantità a "
+            "0 e, dove disponibile, il prezzo di riferimento del prezzario) — un testo descrittivo non permette "
+            "di risalire in modo affidabile a una quantità reale, quindi vanno misurati e prezzati a mano, o "
+            "eliminati se il materiale non è pertinente a questa parte del progetto."
         )
 
     # --- Rivestimenti di facciata individuati visivamente in un render e
