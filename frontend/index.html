@@ -188,6 +188,9 @@ try {
   .account-dropdown .msg-err { color: #a13a26; font-size: .78rem; margin-top: .4rem; }
   .account-dropdown button[type="submit"] { width: 100%; margin-top: .7rem; }
   .account-dropdown .account-info-email { font-weight: 600; word-break: break-all; }
+  .account-dropdown .account-plan { margin-top: .35rem; font-size: .8rem; color: var(--ink-soft); }
+  .account-dropdown .account-plan strong { color: var(--ink); }
+  .account-dropdown .hint-inline { color: var(--ink-faint); font-weight: 400; }
   .account-dropdown .account-actions { display: flex; flex-direction: column; gap: .4rem; margin-top: .8rem; }
   .account-dropdown p.hint-small { margin: .7rem 0 0; font-size: .78rem; color: var(--ink-faint); line-height: 1.55; }
 
@@ -313,6 +316,15 @@ try {
   }
   .card p { margin: 0; font-size: .9rem; color: var(--ink-soft); }
 
+  .card-badge {
+    display: inline-block; font-family: var(--font-head); font-size: .68rem; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint);
+    background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 999px;
+    padding: .28em .8em; margin-bottom: 1rem;
+  }
+  .card-badge-attivo { color: #fff6ec; background: linear-gradient(120deg, var(--accent), var(--accent-soft-c)); border-color: transparent; }
+  .card-piano-attivo { border-color: rgba(180,112,63,0.45); box-shadow: 0 0 0 1px rgba(180,112,63,0.12) inset; }
+
   .band {
     display: flex; flex-wrap: wrap; gap: 2.4rem; align-items: center; justify-content: space-between;
   }
@@ -378,8 +390,8 @@ try {
       <a href="/app.html" class="btn">Inizia un nuovo computo →</a>
       <a href="#" class="btn secondary" id="btnAccediHero">Accedi o crea un account</a>
     </div>
-    <p class="cta-note">Puoi iniziare subito senza registrarti. L'account serve solo a salvare in automatico i tuoi
-    lavori sul server.</p>
+    <p class="cta-note">Puoi iniziare subito senza registrarti. Accesso gratuito durante questa fase beta: in
+    arrivo un piano a consumo o in abbonamento — <a href="#piani">i dettagli qui sotto</a>.</p>
 
     <a href="#comeFunziona" class="scroll-cue"><span class="dot">&#8595;</span> Scopri come funziona</a>
   </header>
@@ -457,14 +469,44 @@ try {
     <div class="panel band reveal-init">
       <div class="band-text">
         <p class="block-eyebrow">Il tuo lavoro, sempre con te</p>
-        <h2>Crea un account gratuito</h2>
+        <h2>Crea un account</h2>
         <p class="block-desc">Ogni computo salvato viene sincronizzato in automatico sul server: lo ritrovi da
-        qualunque dispositivo, anche svuotando la cache del browser. È la base su cui in futuro arriveranno anche
-        gestione di abbonamenti e fatturazione.</p>
+        qualunque dispositivo, anche svuotando la cache del browser. È anche l'account con cui, quando sarà pronto,
+        potrai attivare un piano a pagamento — vedi qui sotto.</p>
       </div>
       <div class="band-cta">
         <a href="#" class="btn" id="btnCreaAccountBand">Crea il tuo account</a>
         <a href="/app.html" class="btn secondary">Continua senza account</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="piani">
+    <div class="block-head">
+      <p class="block-eyebrow">Piani</p>
+      <h2>Gratuito in fase beta, a pagamento in seguito</h2>
+      <p class="block-desc">Il modello definitivo — abbonamento mensile o crediti a consumo — è ancora in
+      valutazione: nel frattempo l'accesso resta gratuito per tutti gli account, senza sorprese quando il piano
+      sarà attivo.</p>
+    </div>
+    <div class="grid-4">
+      <div class="card card-piano card-piano-attivo">
+        <span class="card-badge card-badge-attivo">Attivo ora</span>
+        <h3>Beta gratuita</h3>
+        <p>Accesso completo allo strumento — generazione del computo in tutti i formati e salvataggio dei progetti
+        in cloud incluso, senza limiti d'uso.</p>
+      </div>
+      <div class="card card-piano">
+        <span class="card-badge">In valutazione</span>
+        <h3>Abbonamento mensile</h3>
+        <p>Canone ricorrente con una soglia di computi inclusi ogni mese, pensato per chi usa Estima con
+        regolarità.</p>
+      </div>
+      <div class="card card-piano">
+        <span class="card-badge">In valutazione</span>
+        <h3>Crediti a consumo</h3>
+        <p>Pacchetto di crediti scalati ad ogni computo generato, senza scadenza — pensato per un utilizzo più
+        occasionale.</p>
       </div>
     </div>
   </section>
@@ -556,7 +598,21 @@ function estimaFormAccesso(modeIniziale) {
       <div id="authMsg"></div>
     </form>
     <p class="hint-small">Dopo l'accesso vieni portato direttamente al tuo pannello di lavoro, dove ogni computo
-    salvato viene sincronizzato in automatico.</p>`;
+    salvato viene sincronizzato in automatico. Accesso gratuito in questa fase beta: in arrivo un piano a consumo
+    o in abbonamento.</p>`;
+}
+
+// Stessa logica di frontend/app.html: legge i campi già restituiti da
+// utente_pubblico() lato server (vedi backend/accounts/db.py), tutti ancora
+// NULL/beta finché non si lancia un vero piano a pagamento.
+function estimaEtichettaPiano(u) {
+  if (u.crediti_residui !== null && u.crediti_residui !== undefined) {
+    return `Crediti residui: <strong>${u.crediti_residui}</strong>`;
+  }
+  if (u.abbonamento_stato) {
+    return `Abbonamento: <strong>${u.abbonamento_stato}</strong>`;
+  }
+  return `Piano: <strong>Beta gratuita</strong> <span class="hint-inline">— in arrivo crediti/abbonamento</span>`;
 }
 
 function estimaContenutoAccountLoggato() {
@@ -564,6 +620,7 @@ function estimaContenutoAccountLoggato() {
   return `
     <h4>Bentornato</h4>
     <div class="account-info-email">${u.email.replace(/</g, "&lt;")}</div>
+    <div class="account-plan">${estimaEtichettaPiano(u)}</div>
     <div class="account-actions">
       <button type="button" class="secondary" id="btnVaiPannello">Vai al tuo pannello →</button>
       <button type="button" class="secondary" id="btnEsciAccount">Esci</button>

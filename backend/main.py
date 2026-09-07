@@ -175,6 +175,46 @@ if BASIC_AUTH_USER and BASIC_AUTH_PASS:
 # su cui costruire in futuro piani a pagamento/fatturazione (vedi il campo
 # 'piano' in accounts/db.py) — non è ancora un sistema pronto per un pubblico
 # ampio senza account già noti/fidati come Franco stesso.
+#
+# Piani/crediti (deciso con Franco): la struttura dati supporta già sia un
+# abbonamento ricorrente sia crediti a consumo (vedi accounts/db.py), ma
+# NESSUNO dei due è ancora attivo — 'piano' resta 'beta_gratuita' per tutti e
+# nessuna azione viene bloccata. L'UNICA cosa già attiva è una soglia
+# giornaliera anti-abuso sulle chiamate che usano l'AI (le sole con un costo
+# reale già oggi, sulla chiave ANTHROPIC_API_KEY di Franco condivisa da tutti
+# i visitatori): non è un piano a pagamento, è solo una rete di sicurezza per
+# non ritrovarsi una bolletta imprevista mentre il modello di prezzo non è
+# ancora deciso. La soglia è volutamente larga (vedi LIMITE_AI_GIORNALIERO) e
+# configurabile via variabile d'ambiente senza bisogno di ridistribuire il
+# codice.
+
+LIMITE_AI_GIORNALIERO = int(os.environ.get("ESTIMA_LIMITE_AI_GIORNALIERO", "60"))
+
+
+def _identificativo_richiesta(request: Request, utente: dict | None) -> str:
+    """Chiave usata per contare gli utilizzi/applicare il limite anti-abuso:
+    l'id utente se connesso, altrimenti l'IP del chiamante — così la soglia
+    protegge Franco anche da chi genera come ospite, senza account."""
+    if utente:
+        return f"utente:{utente['id']}"
+    ip = request.client.host if request.client else "sconosciuto"
+    return f"ip:{ip}"
+
+
+def _verifica_limite_ai(conn, identificativo: str) -> None:
+    """Solleva 429 se questo identificativo ha già superato oggi la soglia di
+    chiamate AI consentite in questa fase beta gratuita. Non riguarda le
+    azioni puramente computazionali (generazione/download dei file), che
+    restano senza limiti per scelta esplicita finché il modello di prezzo non
+    è deciso."""
+    n = accounts_db.conta_utilizzi_oggi(conn, identificativo, prefisso_tipo="ai_")
+    if n >= LIMITE_AI_GIORNALIERO:
+        raise HTTPException(
+            429,
+            "Hai raggiunto il limite giornaliero di richieste AI previsto in questa fase di test "
+            "gratuita. Riprova domani, oppure scrivici se ti serve una soglia più alta.",
+        )
+
 
 def _utente_sessione(request: Request) -> dict | None:
     """Utente attualmente connesso (dalla sessione), o None se nessuno ha
@@ -245,6 +285,18 @@ async def api_auth_esci(request: Request):
 async def api_auth_utente(request: Request):
     utente = _utente_sessione(request)
     return {"utente": accounts_db.utente_pubblico(utente) if utente else None}
+
+
+@app.get("/api/account/utilizzo")
+async def api_account_utilizzo(utente: dict = Depends(richiedi_utente)):
+    """Riepilogo dei consumi di questo mese per l'account connesso (numero di
+    computi generati/azioni AI), da mostrare nel pannello account. Non è
+    ancora legato a un vero addebito: solo visibilità sui consumi, utile fin
+    da ora per capire quanto costa davvero un account che genera molto prima
+    ancora che esista un piano a pagamento."""
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    riepilogo = accounts_db.riepilogo_utilizzo_mensile(conn, utente["id"])
+    return {"utilizzo_mese_corrente": riepilogo, "limite_ai_giornaliero": LIMITE_AI_GIORNALIERO}
 
 
 @app.get("/api/progetti")
@@ -454,6 +506,7 @@ async def api_upload_prezzario(
 
 @app.post("/api/estrai-vani")
 async def api_estrai_vani(
+    request: Request,
     tipo_intervento: str = Form(...),
     file_progetto: list[UploadFile] = File(...),
     file_stato_di_fatto: list[UploadFile] = File(default=[]),
@@ -580,9 +633,17 @@ async def api_estrai_vani(
     # blocca l'estrazione: viene solo annotato. ---
     analisi_render = None
     if render_paths:
+        _conn_utilizzi = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+        _utente_corrente = _utente_sessione(request)
+        _id_richiesta = _identificativo_richiesta(request, _utente_corrente)
+        _verifica_limite_ai(_conn_utilizzi, _id_richiesta)
         try:
             analisi_render = analizza_render(
                 render_paths, prospetti_pdf_path=pdf_prospetti_path, bande_prospetti=bande_prospetti_flat,
+            )
+            accounts_db.registra_utilizzo(
+                _conn_utilizzi, _id_richiesta, "ai_analisi_render",
+                utente_id=_utente_corrente["id"] if _utente_corrente else None,
             )
             for elemento in analisi_render["elementi"]:
                 banda = elemento.get("banda_abbinata")
@@ -791,6 +852,7 @@ def _parse_generate_payload(
 
 @app.post("/api/generate")
 async def api_generate(
+    request: Request,
     tipo_intervento: str = Form(...),
     voci_json: str = Form(...),
     nome_progetto: str = Form("Progetto senza nome"),
@@ -834,12 +896,23 @@ async def api_generate(
         zf.write(word_out, arcname="relazione_computo.docx")
         zf.write(pdf_out, arcname="computo_metrico.pdf")
 
+    # Registrato (non limitato, non ancora a pagamento): pura visibilità sui
+    # consumi in vista di un futuro piano a crediti/abbonamento — vedi la nota
+    # sulla tabella 'utilizzi' in accounts/db.py.
+    _conn_utilizzi = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    _utente_corrente = _utente_sessione(request)
+    accounts_db.registra_utilizzo(
+        _conn_utilizzi, _identificativo_richiesta(request, _utente_corrente), "generazione_computo",
+        utente_id=_utente_corrente["id"] if _utente_corrente else None, dettaglio="zip_completo",
+    )
+
     return FileResponse(zip_path, media_type="application/zip",
                          filename="computo_metrico_estimativo.zip")
 
 
 @app.post("/api/scarica-formato")
 async def api_scarica_formato(
+    request: Request,
     formato: str = Form(...),
     tipo_intervento: str = Form(...),
     voci_json: str = Form(...),
@@ -875,11 +948,18 @@ async def api_scarica_formato(
         validation_messages=validation_messages, confronto=confronto, out_path=out_path,
     )
 
+    _conn_utilizzi = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    _utente_corrente = _utente_sessione(request)
+    accounts_db.registra_utilizzo(
+        _conn_utilizzi, _identificativo_richiesta(request, _utente_corrente), "generazione_computo",
+        utente_id=_utente_corrente["id"] if _utente_corrente else None, dettaglio=formato,
+    )
+
     return FileResponse(out_path, media_type=media_type, filename=nome_file)
 
 
 @app.post("/api/interpreta-commento")
-async def api_interpreta_commento(payload: dict = Body(...)):
+async def api_interpreta_commento(request: Request, payload: dict = Body(...)):
     """Interpreta un'istruzione scritta liberamente dall'utente nella colonna
     "Commento" di una riga di computo (nel passaggio di revisione, prima del
     download) e restituisce come applicarla: modifica dei valori della riga,
@@ -891,20 +971,28 @@ async def api_interpreta_commento(payload: dict = Body(...)):
     Richiede ANTHROPIC_API_KEY configurata sul server: se assente risponde
     503 con un messaggio chiaro invece di applicare una modifica finta.
     Usa il modello economico (Haiku): è una modifica strutturata su una
-    riga sola, non serve un modello più costoso."""
+    riga sola, non serve un modello più costoso.
+    Soggetta al limite giornaliero anti-abuso (vedi _verifica_limite_ai):
+    non è ancora un'azione a pagamento, ma ha un costo AI reale."""
     voce = payload.get("voce") or {}
     istruzione = (payload.get("istruzione") or "").strip()
     if not istruzione:
         raise HTTPException(400, "Istruzione vuota.")
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    utente = _utente_sessione(request)
+    identificativo = _identificativo_richiesta(request, utente)
+    _verifica_limite_ai(conn, identificativo)
     try:
         risultato = interpreta_istruzione(voce, istruzione)
     except AiAssistantError as exc:
         return JSONResponse(status_code=503, content={"error": str(exc)})
+    accounts_db.registra_utilizzo(conn, identificativo, "ai_interpreta_commento",
+                                   utente_id=utente["id"] if utente else None)
     return risultato
 
 
 @app.post("/api/revisiona-computo")
-async def api_revisiona_computo(payload: dict = Body(...)):
+async def api_revisiona_computo(request: Request, payload: dict = Body(...)):
     """Secondo passaggio, facoltativo e su richiesta esplicita dell'utente
     (mai automatico): fa rileggere l'INTERO computo già generato a un
     modello linguistico più capace (Sonnet, non Haiku — qui serve
@@ -915,16 +1003,25 @@ async def api_revisiona_computo(payload: dict = Body(...)):
     elenco di osservazioni che l'utente valuta e applica a mano.
 
     Corpo atteso: {"voci": [...], "meta": {...}, "tipo_intervento": "..."}.
-    Richiede ANTHROPIC_API_KEY: se assente risponde 503."""
+    Richiede ANTHROPIC_API_KEY: se assente risponde 503.
+    Soggetta al limite giornaliero anti-abuso (vedi _verifica_limite_ai): è
+    la chiamata AI più costosa del sito (Sonnet, contesto grande), quindi
+    conta come tale ai fini della soglia."""
     voci = payload.get("voci") or []
     meta = payload.get("meta") or {}
     tipo_intervento = payload.get("tipo_intervento") or ""
     if not voci:
         raise HTTPException(400, "Nessuna voce da revisionare.")
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    utente = _utente_sessione(request)
+    identificativo = _identificativo_richiesta(request, utente)
+    _verifica_limite_ai(conn, identificativo)
     try:
         risultato = revisiona_computo(voci, meta, tipo_intervento)
     except AiAssistantError as exc:
         return JSONResponse(status_code=503, content={"error": str(exc)})
+    accounts_db.registra_utilizzo(conn, identificativo, "ai_revisione_computo",
+                                   utente_id=utente["id"] if utente else None)
     return risultato
 
 

@@ -203,6 +203,8 @@ try {
   .account-dropdown .msg-ok { color: var(--ok-fg); font-size: .78rem; margin-top: .4rem; }
   .account-dropdown button[type="submit"] { width: 100%; margin-top: .7rem; }
   .account-dropdown .account-info-email { font-weight: 600; word-break: break-all; }
+  .account-dropdown .account-plan { margin-top: .35rem; font-size: .8rem; color: var(--ink-soft); }
+  .account-dropdown .account-plan strong { color: var(--ink); }
   .account-dropdown .account-actions { display: flex; flex-direction: column; gap: .4rem; margin-top: .8rem; }
 
   /* --- comparsa delle sezioni allo scroll --- */
@@ -2912,7 +2914,25 @@ function estimaFormAccesso() {
     </form>
     <p style="margin:.7rem 0 0"><small class="hint">L'account serve a salvare in automatico una copia dei tuoi
     progetti sul server (oltre allo storico già presente in questo browser), così non li perdi cambiando
-    dispositivo o svuotando la cache.</small></p>`;
+    dispositivo o svuotando la cache. Accesso gratuito in questa fase beta: in arrivo un piano a consumo o in
+    abbonamento.</small></p>`;
+}
+
+// Riga "Piano" mostrata nel menu account: legge gli stessi campi già
+// restituiti da utente_pubblico() lato server (piano/crediti_residui/
+// abbonamento_stato — vedi backend/accounts/db.py), tutti ancora NULL/beta
+// finché non si lancia un vero piano a pagamento. Scritta così da mostrare
+// automaticamente crediti o abbonamento non appena quei campi verranno
+// valorizzati, senza bisogno di toccare di nuovo questo file.
+function estimaEtichettaPiano(u) {
+  if (u.crediti_residui !== null && u.crediti_residui !== undefined) {
+    return `Crediti residui: <strong>${u.crediti_residui}</strong>`;
+  }
+  if (u.abbonamento_stato) {
+    const scad = u.abbonamento_rinnovo_il ? ` — rinnovo il ${estimaFmtDataOra(u.abbonamento_rinnovo_il).split(",")[0]}` : "";
+    return `Abbonamento: <strong>${u.abbonamento_stato}</strong>${scad}`;
+  }
+  return `Piano: <strong>Beta gratuita</strong> <span class="hint">— in arrivo crediti/abbonamento</span>`;
 }
 
 function estimaContenutoAccountLoggato() {
@@ -2920,6 +2940,7 @@ function estimaContenutoAccountLoggato() {
   return `
     <h4>Il tuo account</h4>
     <div class="account-info-email">${u.email.replace(/</g, "&lt;")}</div>
+    <div class="account-plan">${estimaEtichettaPiano(u)}</div>
     <div class="account-actions">
       <button type="button" class="secondary" id="btnApriProgettiCloud">☁️ I miei progetti salvati</button>
       <button type="button" class="secondary" id="btnEsciAccount">Esci</button>
