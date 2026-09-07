@@ -1,0 +1,3301 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Computo Metrico Automatico — MVP</title>
+<script>
+// Applica il tema salvato PRIMA che la pagina venga disegnata, per evitare un
+// lampo del tema sbagliato al caricamento. Se qualcosa fallisce (localStorage
+// bloccato, ecc.) resta semplicemente il tema chiaro di default: nessun problema.
+try {
+  var savedTheme = localStorage.getItem("estima-theme");
+  if (savedTheme === "dark") document.documentElement.setAttribute("data-theme", "dark");
+} catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font-serif: 'Fraunces', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+    --font-head: 'Space Grotesk', 'Inter', sans-serif;
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --bg: #f2ebdc;
+    --paper: #fffcf6;
+    --glass-bg: rgba(255,252,246,0.88);
+    --glass-bg-strong: rgba(255,255,255,0.62);
+    --glass-border: rgba(74,54,30,0.16);
+    --ink: #2b2419;
+    --ink-soft: #7d715f;
+    --ink-faint: #9c9080;
+    --line: rgba(74,54,30,0.15);
+    --line-strong: rgba(74,54,30,0.28);
+    --accent: #b4703f;
+    --accent-soft-c: #c98a54;
+    --accent-dark: #8a5527;
+    --accent-soft: rgba(180,112,63,0.14);
+    --ok-bg: rgba(76,107,52,0.12);
+    --ok-fg: #4c6b34;
+    --err-bg: rgba(161,58,38,0.10);
+    --err-fg: #a13a26;
+    --warn-bg: rgba(138,90,23,0.12);
+    --warn-fg: #8a5a17;
+    --radius-s: 8px;
+    --radius-m: 18px;
+    --shadow-card: 0 24px 50px -28px rgba(74,54,30,0.30);
+  }
+
+  /* --- tema scuro: stessa direzione tortora/bronzo, invertita --- */
+  html[data-theme="dark"] {
+    --bg: #1d1a17;
+    --paper: #2a251f;
+    --glass-bg: rgba(35,30,25,0.88);
+    --glass-bg-strong: rgba(255,255,255,0.07);
+    --glass-border: rgba(238,228,211,0.14);
+    --ink: #f4ede1;
+    --ink-soft: #b7ab97;
+    --ink-faint: #8a8072;
+    --line: rgba(238,228,211,0.14);
+    --line-strong: rgba(238,228,211,0.26);
+    --accent: #c69566;
+    --accent-soft-c: #e3b98a;
+    --accent-dark: #8a5527;
+    --accent-soft: rgba(230,190,140,0.16);
+    --ok-bg: rgba(143,194,106,0.14);
+    --ok-fg: #9ecb7c;
+    --err-bg: rgba(224,123,95,0.14);
+    --err-fg: #e28a70;
+    --warn-bg: rgba(224,178,90,0.14);
+    --warn-fg: #e0b25a;
+    --shadow-card: 0 24px 60px -24px rgba(0,0,0,0.6);
+  }
+  html[data-theme="dark"] #stepNav { background: rgba(29,26,23,0.72); }
+  html[data-theme="dark"] .noise-vignette {
+    background: radial-gradient(ellipse at 50% 0%, rgba(29,26,23,0) 0%, rgba(29,26,23,0.4) 55%, rgba(29,26,23,0.92) 100%);
+  }
+  html[data-theme="dark"] .grid-overlay {
+    background-image:
+      linear-gradient(rgba(198,149,102,0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(198,149,102,0.07) 1px, transparent 1px);
+  }
+  html[data-theme="dark"] button:not(.secondary):not(.small) {
+    color: #241a10;
+    background: linear-gradient(120deg, var(--accent-soft-c), var(--accent));
+    border-color: transparent;
+  }
+  html[data-theme="dark"] button:not(.secondary):not(.small):hover {
+    background: linear-gradient(120deg, var(--accent), var(--accent-dark));
+    box-shadow: 0 14px 28px -10px rgba(198,149,102,0.5);
+    color: #241a10;
+  }
+  html[data-theme="dark"] #vociTable tr.voce-da-completare { background: rgba(230,190,140,0.10); }
+  html[data-theme="dark"] #vociTable tr.voce-da-completare input { background: rgba(230,190,140,0.06); }
+  html[data-theme="dark"] .step-nav-theme .icon-moon { display: none; }
+  html[data-theme="dark"] .step-nav-theme .icon-sun { display: inline; }
+  .step-nav-theme .icon-sun { display: none; }
+
+  * { box-sizing: border-box; }
+
+  html, body { background: var(--bg); }
+
+  body {
+    font-family: var(--font-sans);
+    max-width: 900px;
+    margin: 0 auto;
+    padding: calc(3rem + 52px) 1.5rem 5rem;
+    color: var(--ink);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+  }
+
+  /* --- barra fissa di navigazione a step --- */
+  #stepNav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+    display: flex; align-items: center; gap: .4rem;
+    padding: .5rem clamp(.8rem, 4vw, 2rem);
+    background: rgba(242,235,220,0.72);
+    border-bottom: 1px solid var(--glass-border);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    overflow-x: auto; scrollbar-width: none;
+  }
+  #stepNav::-webkit-scrollbar { display: none; }
+  #stepNav .step-nav-brand {
+    font-family: var(--font-head); font-weight: 600; font-size: .74rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--accent); flex: none; margin-right: .6rem;
+    display: none; text-decoration: none; transition: color .2s ease;
+  }
+  #stepNav .step-nav-brand:hover { color: var(--accent-dark); }
+  #stepNav .step-nav-btn {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 1.9rem; height: 1.9rem; border-radius: 50%; cursor: pointer;
+    font-family: var(--font-head); font-size: .74rem; font-weight: 600;
+    color: var(--ink-faint); background: transparent; border: 1px solid var(--glass-border);
+    transition: color .2s ease, border-color .2s ease, background .2s ease, transform .15s ease;
+  }
+  #stepNav .step-nav-btn:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-1px); }
+  #stepNav .step-nav-btn.active {
+    color: #fff6ec; background: linear-gradient(120deg, var(--accent), var(--accent-soft-c));
+    border-color: transparent; box-shadow: 0 4px 14px -4px rgba(180,112,63,0.55);
+  }
+  #stepNav .step-nav-btn.done:not(.active) { color: var(--accent); border-color: rgba(180,112,63,0.4); }
+  #stepNav .step-nav-fill { flex: 1; }
+  #stepNav .step-nav-theme {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 1.9rem; height: 1.9rem; border-radius: 50%; cursor: pointer;
+    background: transparent; border: 1px solid var(--glass-border); color: var(--ink-soft);
+    font-size: .92rem; transition: border-color .2s ease, color .2s ease;
+  }
+  #stepNav .step-nav-theme:hover { border-color: var(--accent); color: var(--accent); }
+  @media (min-width: 760px) {
+    #stepNav .step-nav-brand { display: inline-block; }
+  }
+  @media (max-width: 640px) {
+    #stepNav { padding: .4rem .7rem; }
+    #stepNav .step-nav-btn, #stepNav .step-nav-theme { width: 1.7rem; height: 1.7rem; font-size: .7rem; }
+  }
+
+  /* --- account (accesso/registrazione, progetti in cloud) --- */
+  #stepNav .step-nav-account-wrap { position: relative; flex: none; }
+  #stepNav .step-nav-account {
+    flex: none; display: inline-flex; align-items: center; gap: .35rem;
+    height: 1.9rem; padding: 0 .7rem; border-radius: 999px; cursor: pointer;
+    font-family: var(--font-head); font-size: .74rem; font-weight: 600;
+    color: var(--ink-soft); background: transparent; border: 1px solid var(--glass-border);
+    transition: border-color .2s ease, color .2s ease;
+    max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #stepNav .step-nav-account:hover { border-color: var(--accent); color: var(--accent); }
+  #stepNav .step-nav-account .avatar {
+    flex: none; width: 1.25rem; height: 1.25rem; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: linear-gradient(120deg, var(--accent), var(--accent-soft-c)); color: #fff6ec;
+    font-size: .68rem; font-weight: 700;
+  }
+  .account-dropdown {
+    /* position/top/right impostati via JS (vedi estimaApriDropdown): il
+       pulsante vive dentro #stepNav, che ha overflow-x:auto — per una
+       proprietà poco nota della spec CSS, questo trasforma anche
+       overflow-y in "auto", tagliando qualunque discendente posizionato in
+       absolute che sporga oltre l'altezza della barra. Soluzione: il menu
+       è agganciato al <body> con position:fixed, fuori da quel contesto di
+       overflow, con la posizione calcolata dal punto esatto del pulsante. */
+    z-index: 40;
+    width: 19rem; max-width: calc(100vw - 2rem);
+    background: var(--paper); border: 1px solid var(--glass-border); border-radius: var(--radius-m);
+    box-shadow: var(--shadow-card); padding: 1rem; font-size: .85rem;
+  }
+  .account-dropdown h4 { margin: 0 0 .6rem; font-family: var(--font-head); font-size: .9rem; }
+  .account-dropdown label { display: block; font-size: .78rem; color: var(--ink-soft); margin: .5rem 0 .2rem; }
+  .account-dropdown input[type="email"], .account-dropdown input[type="password"], .account-dropdown input[type="text"] {
+    width: 100%; box-sizing: border-box; padding: .45rem .6rem; border-radius: var(--radius-s);
+    border: 1px solid var(--line); font-size: .85rem; background: var(--glass-bg-strong); color: var(--ink);
+  }
+  .account-dropdown .tabs { display: flex; gap: .4rem; margin-bottom: .6rem; }
+  .account-dropdown .tabs button {
+    flex: 1; padding: .35rem 0; border-radius: var(--radius-s); border: 1px solid var(--glass-border);
+    background: transparent; color: var(--ink-soft); font-size: .78rem; cursor: pointer;
+  }
+  .account-dropdown .tabs button.active { background: var(--accent); color: #fff6ec; border-color: transparent; }
+  .account-dropdown .msg-err { color: var(--err-fg); font-size: .78rem; margin-top: .4rem; }
+  .account-dropdown .msg-ok { color: var(--ok-fg); font-size: .78rem; margin-top: .4rem; }
+  .account-dropdown button[type="submit"] { width: 100%; margin-top: .7rem; }
+  .account-dropdown .account-info-email { font-weight: 600; word-break: break-all; }
+  .account-dropdown .account-actions { display: flex; flex-direction: column; gap: .4rem; margin-top: .8rem; }
+
+  /* --- comparsa delle sezioni allo scroll --- */
+  section.reveal-init { opacity: 0; transform: translateY(28px); transition: opacity .7s cubic-bezier(.2,.9,.25,1), transform .7s cubic-bezier(.2,.9,.25,1); }
+  section.reveal-init.in-view { opacity: 1; transform: translateY(0); }
+  @media (prefers-reduced-motion: reduce) {
+    section.reveal-init { opacity: 1; transform: none; transition: none; }
+  }
+
+  /* --- fixed atmospheric layers: WebGL canvas + blueprint grid + vignette ---
+     (c'era anche una "scanline" animata, una linea orizzontale che attraversava
+     lentamente la pagina: rimossa perché, essendo dietro a pannelli comunque un
+     po' trasparenti, si vedeva come una fastidiosa striscia colorata che
+     attraversava il contenuto — segnalato da Franco.) */
+  #webgl-bg { position: fixed; inset: 0; z-index: -4; }
+  .grid-overlay {
+    position: fixed; inset: 0; z-index: -3; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(120,85,50,0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120,85,50,0.07) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
+  }
+  .noise-vignette {
+    position: fixed; inset: 0; z-index: -2; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 0%, rgba(242,235,220,0) 0%, rgba(242,235,220,0.15) 55%, rgba(242,235,220,0.6) 100%);
+  }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: .55rem;
+    font-family: var(--font-head); font-size: .72rem; font-weight: 600; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--accent);
+    margin-bottom: 1.3rem;
+  }
+  .eyebrow::before {
+    content: ""; width: .42rem; height: .42rem; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px 2px rgba(180,112,63,0.4);
+    animation: pulse 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(.72); } }
+  @media (prefers-reduced-motion: reduce) { .eyebrow::before { animation: none; } }
+
+  h1 {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    font-size: clamp(1.9rem, 1.3rem + 2.4vw, 3.1rem);
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+    margin: 0 0 .6rem;
+    color: var(--ink);
+    display: flex; flex-wrap: wrap; gap: .05em .3em; align-items: baseline;
+  }
+  h1 .word {
+    display: inline-block; opacity: 0; transform: translateY(.5em);
+    animation: rise .9s cubic-bezier(.2,.9,.25,1) forwards, shimmer 9s linear infinite 1s;
+    background: linear-gradient(120deg, var(--ink), var(--accent) 45%, var(--accent-soft-c) 60%, var(--ink));
+    background-size: 280% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  h1 .word:nth-child(1) { animation-delay: .05s, 1s; }
+  h1 .word:nth-child(2) { animation-delay: .18s, 1s; }
+  h1 .word:nth-child(3) { animation-delay: .31s, 1s; }
+  @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+  @keyframes shimmer { to { background-position: -280% 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    h1 .word { animation: none; opacity: 1; transform: none; background-position: 0 0; }
+  }
+  h1 .tag {
+    display: inline-block;
+    font-family: var(--font-head);
+    font-size: .38em;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    border-radius: 999px;
+    padding: .35em .8em;
+    vertical-align: middle;
+    margin-left: .3rem;
+  }
+
+  body > p.lede {
+    color: var(--ink-soft);
+    font-size: .95rem;
+    max-width: 640px;
+    margin: 0 0 2.6rem;
+    padding-bottom: 1.8rem;
+    border-bottom: 1px solid var(--line);
+  }
+  body > p.lede small.hint { color: var(--ink-soft); }
+
+  /* --- glass section panels --- */
+  section {
+    /* NOTA: qui c'era prima anche backdrop-filter (l'effetto "vetro smerigliato"
+       sull'immagine 3D di sfondo). Rimosso deliberatamente: su form lunghi con
+       molte righe (es. il computo con tante voci) obbligava il browser a
+       rifare continuamente la sfocatura durante lo scroll, con il risultato
+       di uno scroll che sembrava bloccato — e in alcuni browser può anche
+       impedire l'apertura corretta dei menu a tendina nativi (<select>)
+       dentro alla sezione, come nel prezzario di riferimento. Lo sfondo resta
+       comunque leggermente trasparente (vedi --glass-bg, reso più opaco per
+       compensare l'assenza della sfocatura), solo senza l'effetto sfocato. */
+    position: relative;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-m);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.45) inset, var(--shadow-card);
+    padding: 2rem clamp(1.2rem, 4vw, 2.4rem);
+    margin-bottom: 1.9rem;
+    overflow: hidden;
+  }
+  section::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+    background: linear-gradient(135deg, rgba(180,112,63,0.38), rgba(180,112,63,0) 45%, rgba(125,113,95,0.22) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    opacity: .6; pointer-events: none;
+  }
+  section::after {
+    content: ""; position: absolute; top: -35%; left: -8%; width: 55%; height: 130%;
+    background: radial-gradient(circle, rgba(180,112,63,0.07), transparent 65%);
+    pointer-events: none;
+  }
+
+  section h2 {
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+    margin: 0 0 1.5rem;
+    padding-bottom: 1.1rem;
+    border-bottom: 1px solid var(--line);
+    font-weight: 500;
+    font-size: 1.02rem;
+    position: relative; z-index: 1;
+  }
+  h2 .step-num {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border: 1px solid rgba(180,112,63,0.5);
+    border-radius: 50%;
+    background: var(--glass-bg-strong);
+    box-shadow: 0 0 12px rgba(180,112,63,0.16);
+    font-family: var(--font-head);
+    font-size: .8rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  h2 .step-title {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 1.28rem;
+    letter-spacing: -0.005em;
+    color: var(--ink);
+  }
+
+  h3 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 1.08rem;
+    letter-spacing: -0.003em;
+    margin: 1.8rem 0 .7rem;
+    color: var(--ink);
+  }
+  h3:first-child { margin-top: 0; }
+
+  label {
+    display: block;
+    margin: 1.15rem 0 .4rem;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: .84rem;
+    letter-spacing: .002em;
+    color: var(--ink-soft);
+  }
+  label:first-of-type { margin-top: 0; }
+  label[style*="font-weight:normal"] {
+    font-size: .95rem;
+    color: var(--ink);
+    font-weight: 400 !important;
+  }
+
+  input[type=text], input[type=number], textarea, select {
+    width: 100%;
+    padding: .62rem .75rem;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-s);
+    box-sizing: border-box;
+    font-family: var(--font-sans);
+    font-size: .92rem;
+    color: var(--ink);
+    background: var(--glass-bg-strong);
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input[type=text]:focus, input[type=number]:focus, textarea:focus, select:focus,
+  input[type=file]:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  input[type=file] {
+    width: 100%;
+    font-family: var(--font-sans);
+    font-size: .85rem;
+    color: var(--ink-soft);
+    padding: .5rem 0;
+  }
+  input[type=file]::file-selector-button {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: .78rem;
+    letter-spacing: .02em;
+    color: var(--ink);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-s);
+    padding: .5rem .9rem;
+    margin-right: .8rem;
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  input[type=file]::file-selector-button:hover { border-color: var(--accent); background: var(--accent-soft); }
+  textarea { resize: vertical; }
+
+  input[type=radio], input[type=checkbox] { accent-color: var(--accent); }
+
+  button {
+    margin-top: .9rem;
+    padding: .7rem 1.4rem;
+    border: 1px solid var(--ink);
+    border-radius: 999px;
+    background: linear-gradient(120deg, var(--ink), #4a3a26);
+    color: var(--paper);
+    cursor: pointer;
+    font-family: var(--font-head);
+    font-weight: 600;
+    font-size: .86rem;
+    letter-spacing: .01em;
+    box-shadow: 0 10px 24px -12px rgba(43,36,25,0.5);
+    transition: background .2s ease, border-color .2s ease, transform .12s ease, box-shadow .2s ease;
+  }
+  button:hover {
+    background: linear-gradient(120deg, var(--accent), var(--accent-soft-c));
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px -12px rgba(180,112,63,0.55);
+  }
+  button:active { transform: translateY(1px); }
+  button.secondary {
+    background: var(--glass-bg-strong);
+    color: var(--ink);
+    border: 1px solid var(--glass-border);
+    box-shadow: none;
+  }
+  button.secondary:hover { background: rgba(255,255,255,0.8); border-color: var(--accent); color: var(--accent-dark); box-shadow: none; }
+  button:disabled, button:disabled:hover {
+    background: #ded8ca; border-color: #ded8ca; color: #948c7e; cursor: not-allowed; transform: none; box-shadow: none;
+  }
+
+  .msg { font-size: .88rem; padding: .6rem .85rem; border-radius: var(--radius-s); margin-top: .7rem; white-space: pre-wrap; }
+  .msg.ok { background: var(--ok-bg); color: var(--ok-fg); }
+  .msg.err { background: var(--err-bg); color: var(--err-fg); }
+
+  .question, .doc-row, .param-row { border-top: 1px solid var(--line); padding-top: .75rem; margin-top: .75rem; }
+  .doc-row { font-size: .92rem; }
+  .doc-row .req { color: var(--err-fg); font-size: .76rem; font-weight: 600; }
+  .doc-row .opt { color: var(--ink-faint); font-size: .76rem; }
+  .radio-group {
+    position: relative; display: inline-flex; gap: .2rem; margin-top: .5rem;
+    padding: .3rem; border-radius: 999px;
+    background: rgba(255,255,255,0.4); border: 1px solid var(--glass-border);
+  }
+  .radio-group::before {
+    content: ""; position: absolute; z-index: 1; top: .3rem; bottom: .3rem; left: .3rem;
+    width: calc(50% - .3rem); border-radius: 999px;
+    background: linear-gradient(120deg, var(--accent), var(--accent-soft-c));
+    box-shadow: 0 4px 16px -4px rgba(180,112,63,0.5);
+    transition: transform .35s cubic-bezier(.2,.9,.25,1);
+  }
+  .radio-group:has(label:nth-of-type(2) input:checked)::before { transform: translateX(100%); }
+  .radio-group label {
+    position: relative; z-index: 2; margin: 0 !important;
+    padding: .62rem 1.25rem; border-radius: 999px; cursor: pointer;
+    transition: color .3s ease;
+  }
+  .radio-group label:has(input:checked) { color: #fff6ec; }
+  .radio-group input[type=radio] { position: absolute; opacity: 0; pointer-events: none; }
+  small.hint { color: var(--ink-faint); font-size: .82rem; line-height: 1.55; }
+  .param-row { display: grid; grid-template-columns: 1fr 140px; gap: .6rem; align-items: center; }
+
+  table.edit-table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .85rem; }
+  table.edit-table th {
+    text-align: left; font-size: .7rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--ink-faint); padding: .35rem .4rem; border-bottom: 1px solid var(--line-strong);
+  }
+  table.edit-table td { padding: .3rem .4rem; border-bottom: 1px solid var(--line); }
+  table.edit-table tbody tr:hover { background: rgba(255,255,255,0.4); }
+  table.edit-table input, table.edit-table select { padding: .4rem .45rem; font-size: .85rem; }
+  table.edit-table input[type=number] { width: 90px; }
+  table.edit-table input[type=text] { width: 100%; min-width: 100px; }
+
+  button.small {
+    margin: 0; width: 1.9rem; height: 1.9rem; padding: 0; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: .95rem; font-weight: 400; border-radius: 50%;
+    background: transparent; color: var(--ink-faint); border: 1px solid var(--line-strong);
+  }
+  button.small:hover { background: var(--err-bg); color: var(--err-fg); border-color: var(--err-fg); }
+  button.secondary.small-add { margin-top: .5rem; padding: .4rem .8rem; font-size: .8rem; }
+
+  .note-box {
+    font-size: .85rem; background: var(--warn-bg); color: var(--warn-fg); border-radius: var(--radius-s);
+    padding: .65rem .85rem; margin-top: .6rem; white-space: pre-wrap; border: 1px solid #efe0bb;
+  }
+  .note-box-warn { background: var(--err-bg); color: var(--err-fg); font-weight: 600; border: 1px solid #eac6ba; }
+
+  .comment-cell { min-width: 200px; }
+  .comment-log { max-height: 90px; overflow-y: auto; margin-bottom: .3rem; font-size: .78rem; }
+  .comment-log div { padding: .15rem 0; }
+  .comment-log .log-tu { color: var(--ink); }
+  .comment-log .log-tu::before { content: "🧑 "; }
+  .comment-log .log-ai { color: var(--ok-fg); }
+  .comment-log .log-ai::before { content: "🤖 "; }
+  .comment-log .log-err { color: var(--err-fg); }
+  .comment-log .log-err::before { content: "⚠️ "; }
+  .comment-input { width: 100%; font-size: .8rem !important; padding: .35rem .5rem !important; box-sizing: border-box; }
+  .affidabilita-badge { font-size: .78rem; white-space: nowrap; color: var(--ink-soft); }
+
+  .osservazione-box { font-size: .85rem; border-radius: var(--radius-s); padding: .6rem .85rem; margin-top: .6rem; }
+  .osservazione-alta { background: var(--err-bg); color: var(--err-fg); border: 1px solid #eac6ba; }
+  .osservazione-media { background: var(--warn-bg); color: var(--warn-fg); border: 1px solid #efe0bb; }
+  .osservazione-bassa { background: var(--bg); color: var(--ink-soft); border: 1px solid var(--line); }
+
+  #vociTable tr.voce-da-completare { background: #fbf3de; }
+  #vociTable tr.voce-da-completare input { background: #fffaee; }
+  #vociTable tfoot, .voceImporto { font-variant-numeric: tabular-nums; }
+
+  .file-list { display: flex; flex-wrap: wrap; gap: .4rem; margin: .55rem 0 .2rem; }
+  .file-chip {
+    display: inline-flex; align-items: center; gap: .5rem; background: var(--glass-bg-strong); color: var(--ink);
+    border: 1px solid var(--glass-border); border-radius: 999px; padding: .25rem .3rem .25rem .75rem;
+    font-size: .78rem; max-width: 100%;
+  }
+  .file-chip span.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+  .file-chip button {
+    margin: 0; padding: 0; width: 1.25rem; height: 1.25rem; line-height: 1; border-radius: 50%;
+    background: var(--ink-faint); color: var(--paper); font-size: .76rem; font-weight: 700; cursor: pointer; flex: none;
+    border: none;
+  }
+  .file-chip button:hover { background: var(--err-fg); }
+  .file-chip .file-thumb {
+    width: 1.7rem; height: 1.7rem; border-radius: 50%; overflow: hidden; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--glass-bg); font-size: .85rem; margin-left: -.5rem; border: 1px solid var(--glass-border);
+  }
+  .file-chip .file-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  .history-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: .6rem .9rem;
+    padding: .6rem .8rem; border: 1px solid var(--glass-border); border-radius: var(--radius-s);
+    background: var(--glass-bg-strong);
+  }
+  .history-row .history-main { flex: 1; min-width: 180px; }
+  .history-row .history-name { font-weight: 600; color: var(--ink); }
+  .history-row .history-meta { color: var(--ink-soft); font-size: .82rem; margin-top: .1rem; }
+  .history-row .history-actions { display: flex; gap: .5rem; flex: none; }
+  .history-row .history-actions button { padding: .4rem .9rem; font-size: .78rem; }
+
+  #uploadProgressWrap { margin-top: .8rem; }
+  #uploadProgressBar {
+    width: 100%; height: 8px; background: var(--glass-bg-strong); border-radius: 999px; overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  #uploadProgressFill {
+    height: 100%; width: 0%; background: var(--accent); border-radius: 999px;
+    transition: width .2s ease, background-color .4s ease;
+  }
+  #uploadProgressFill.done { background: var(--ok-fg); }
+  #uploadProgressFill.in-elaborazione {
+    background-image: linear-gradient(135deg, var(--accent) 25%, var(--accent-soft-c) 25%, var(--accent-soft-c) 50%,
+      var(--accent) 50%, var(--accent) 75%, var(--accent-soft-c) 75%, var(--accent-soft-c) 100%);
+    background-size: 28px 28px;
+    animation: uploadStripe 1s linear infinite;
+  }
+  @keyframes uploadStripe { from { background-position: 0 0; } to { background-position: 28px 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    #uploadProgressFill.in-elaborazione { animation: none; opacity: .7; }
+  }
+  #uploadProgressLabel { display: block; margin-top: .35rem; }
+
+  details { margin-top: 1.1rem; border-top: 1px dashed var(--line); padding-top: .9rem; }
+  summary {
+    cursor: pointer; font-weight: 600; font-size: .84rem; color: var(--ink-soft);
+    letter-spacing: .01em; list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; color: var(--accent); }
+  details[open] > summary::before { content: "▾ "; }
+  details[open] > summary { color: var(--ink); margin-bottom: .7rem; }
+  summary:hover { color: var(--accent-dark); }
+
+  #step5 p strong { font-family: var(--font-serif); font-size: 1.15rem; font-weight: 600; }
+  #step5 > p { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+
+  @media (max-width: 640px) {
+    body { padding: calc(2rem + 46px) 1rem 4rem; }
+    section { padding: 1.4rem 1.1rem; }
+    .param-row { grid-template-columns: 1fr; align-items: start; }
+    .radio-group label { padding: .58rem .85rem; font-size: .88rem; }
+  }
+</style>
+</head>
+<body>
+<canvas id="webgl-bg"></canvas>
+<div class="grid-overlay"></div>
+<div class="noise-vignette"></div>
+
+<p class="eyebrow">Studio Pè · Estima</p>
+<h1><span class="word">Computo</span><span class="word">Metrico</span><span class="word">Estimativo</span><span class="tag">MVP</span></h1>
+<p class="lede"><small class="hint">Generazione automatica da elaborati architettonici: copre finiture, strutture in elevazione, scavi e copertura.
+Per una ristrutturazione confronta stato di fatto e stato di progetto. Prezzario di default: selezione di riferimento tratta dal Prezzario Regione Lombardia 2022 (ufficiale, non sostituisce un prezzario di progetto specifico).</small></p>
+
+<section id="step0">
+  <h2><span class="step-num">1</span><span class="step-title">Tipo di intervento</span></h2>
+  <div class="radio-group">
+    <label style="font-weight:normal"><input type="radio" name="tipoIntervento" value="nuova_costruzione" checked> Nuova costruzione</label>
+    <label style="font-weight:normal"><input type="radio" name="tipoIntervento" value="ristrutturazione"> Ristrutturazione</label>
+  </div>
+  <div id="docChecklist"></div>
+</section>
+
+<section id="step1">
+  <h2><span class="step-num">2</span><span class="step-title">Elaborati grafici (PDF vettoriali, in scala, quotati)</span></h2>
+  <small class="hint">Per ogni riga puoi selezionare più file insieme (es. pianta + prospetti + sezioni): verranno
+  uniti automaticamente in un unico documento nell'ordine in cui li selezioni. Importante: seleziona per primo
+  il file la cui PRIMA pagina è la pianta quotata — è quella pagina che viene letta per riconoscere vani e
+  aperture; gli altri file/pagine vengono inclusi come riferimento ma non ancora analizzati automaticamente.</small>
+
+  <label>Pianta, prospetti e sezioni — stato di progetto (obbligatorio almeno un file, con la pianta per primo)</label>
+  <input type="file" id="fileProgetto" accept="application/pdf" multiple />
+  <div class="file-list" id="fileProgettoList"></div>
+
+  <div id="rowStatoDiFatto" style="display:none">
+    <label>Pianta e sezioni — stato di fatto (obbligatorio per ristrutturazione)</label>
+    <input type="file" id="fileStatoDiFatto" accept="application/pdf" multiple />
+    <div class="file-list" id="fileStatoDiFattoList"></div>
+  </div>
+
+  <label>Piante e sezioni strutturali con abaco pilastri/travi (se più file, la pianta strutturale per prima)</label>
+  <input type="file" id="fileStrutturale" accept="application/pdf" multiple />
+  <div class="file-list" id="fileStrutturaleList"></div>
+  <label>Pagina abaco pilastri/travi nel documento strutturale unito (0 = prima pagina; se carichi più file, conta le
+  pagine in sequenza secondo l'ordine di selezione)</label>
+  <input type="number" id="structuralLegendPage" value="1" />
+
+  <label>Pianta di copertura (facoltativa, se più file la pianta di copertura per prima: se assente si usa
+  un'approssimazione dal sedime)</label>
+  <input type="file" id="fileCopertura" accept="application/pdf" multiple />
+  <div class="file-list" id="fileCoperturaList"></div>
+
+  <label>Pagina abaco serramenti nel documento di progetto unito (0 = prima pagina; se carichi più file, conta le
+  pagine in sequenza secondo l'ordine di selezione)</label>
+  <input type="number" id="legendPage" value="1" />
+
+  <label>Prospetti architettonici quotati (facoltativo, ma consigliato se carichi anche render — vedi sotto)</label>
+  <input type="file" id="fileProspetti" accept="application/pdf" multiple />
+  <div class="file-list" id="fileProspettiList"></div>
+  <small class="hint">Diverso dal campo "Pianta, prospetti e sezioni" più sopra: qui i prospetti vengono letti per
+  individuare le quote altimetriche (es. "±0,00", "+3,00", "+9,10") e misurare automaticamente l'altezza reale tra
+  due quote. Serve solo per abbinare un rivestimento di facciata individuato in un render a una superficie
+  MISURATA, non stimata (vedi il campo render qui sotto): se non carichi render non è necessario.</small>
+
+  <label>Relazione tecnica ex Legge 10/91 (facoltativa: stratigrafie di murature, solai e copertura)</label>
+  <input type="file" id="fileLegge10" accept="application/pdf" multiple />
+  <div class="file-list" id="fileLegge10List"></div>
+  <small class="hint">Non è un elaborato in scala: viene solo letta come testo, per riportarti gli spessori
+  dichiarati come riferimento e, se riconoscibili, proporli nei parametri dimensionali del passaggio 5. Se il PDF
+  è una scansione senza testo selezionabile non può essere letta automaticamente.</small>
+
+  <label>Relazione acustica (facoltativa: requisiti acustici passivi/impatto acustico)</label>
+  <input type="file" id="fileAcustica" accept="application/pdf" multiple />
+  <div class="file-list" id="fileAcusticaList"></div>
+  <small class="hint">Non è un elaborato in scala: viene letta come testo per segnalarti i materiali/lavorazioni
+  acustiche tipiche eventualmente citati (es. pannelli fonoisolanti, materassini anticalpestio), che potrai
+  scegliere di aggiungere come voce al computo nel passaggio successivo. Se il PDF è una scansione senza testo
+  selezionabile non può essere letta automaticamente.</small>
+
+  <label>Relazione tecnica descrittiva dell'intervento — <strong>obbligatoria</strong></label>
+  <input type="file" id="fileRelazioneTecnica" accept="application/pdf" multiple required />
+  <div class="file-list" id="fileRelazioneTecnicaList"></div>
+  <small class="hint">Il documento in cui descrivi a parole cosa prevede il progetto (tipo di intervento,
+  struttura, materiali, finiture). Viene letta come testo e mostrata integralmente come riferimento nel
+  passaggio successivo: nessuna domanda del capitolato viene risposta automaticamente da questo testo, per
+  evitare di dare per confermato qualcosa solo perché la parola compare nel documento.</small>
+
+  <label>Render o immagini fotorealistiche del progetto (facoltativo)</label>
+  <input type="file" id="fileRender" accept="image/*,application/pdf" multiple />
+  <div class="file-list" id="fileRenderList"></div>
+  <small class="hint">Un'AI osserva le immagini caricate e descrive materiali/elementi visibili con impatto sul
+  computo (rivestimenti di facciata, parapetti, infissi, pavimentazioni esterne). Per i rivestimenti di facciata:
+  se hai caricato anche i "Prospetti architettonici quotati" qui sopra, il sistema individua DOVE si trova il
+  rivestimento nel render e ne misura l'altezza reale sul prospetto quotato (mai inventata o calcolata dall'AI),
+  proponendoti una superficie misurata (altezza x perimetro esterno) da confermare nel passaggio successivo;
+  altrimenti resta solo una descrizione qualitativa. In nessun caso l'AI decide da sola materiale o prezzo, né
+  modifica il computo automaticamente: verifica sempre di persona. Richiede una chiave AI configurata sul server;
+  senza, i render restano comunque allegati come riferimento.</small>
+
+  <label>Modello 3D — SketchUp (.skp), Revit (.rvt/.rfa) o Rhino (.3dm) (facoltativo)</label>
+  <input type="file" id="fileModello3d" accept=".skp,.rvt,.rfa,.3dm" multiple />
+  <div class="file-list" id="fileModello3dList"></div>
+  <small class="hint">Allegato come riferimento per la consultazione manuale: questi sono formati proprietari e il
+  sistema non ne legge la geometria in questa versione (nessun rilievo o verifica automatica basata sul
+  modello).</small>
+
+  <label>Altri documenti di riferimento, in qualsiasi formato (facoltativo)</label>
+  <input type="file" id="fileAltriDocumenti" multiple />
+  <div class="file-list" id="fileAltriDocumentiList"></div>
+  <small class="hint">Per qualunque altro file utile a valutare meglio il progetto e non previsto dai campi qui
+  sopra (foto del sito/cantiere, capitolati, schede tecniche di prodotto, planimetrie catastali, DWG, immagini,
+  fogli di calcolo, ecc.), in qualsiasi formato. Vengono allegati come riferimento per la consultazione manuale:
+  il sistema non li legge o interpreta automaticamente in questa versione.</small>
+
+  <button id="btnValidate">Verifica elaborati ed estrai vani</button>
+  <div id="uploadProgressWrap" style="display:none">
+    <div id="uploadProgressBar"><div id="uploadProgressFill"></div></div>
+    <small class="hint" id="uploadProgressLabel">Caricamento: 0%</small>
+  </div>
+  <div id="validateMsg"></div>
+  <small class="hint">Ogni singolo PDF caricato deve essere vettoriale, riportare la scala (es. "SCALA 1:100") ed
+  essere quotato: in caso contrario il caricamento viene rifiutato.</small>
+</section>
+
+<section id="step1b" style="display:none">
+  <h2><span class="step-num">3</span><span class="step-title">Vani, aperture ed elementi rilevati — verifica prima di procedere</span></h2>
+  <small class="hint">Il rilievo automatico da disegni CAD dettagliati può occasionalmente unire ambienti vicini o
+  sbagliare qualche misura: controlla i valori qui sotto e correggili se necessario (ogni cella è modificabile,
+  puoi aggiungere o eliminare righe) prima di procedere al calcolo dei prezzi. Per una ristrutturazione, il
+  confronto stato di fatto/progetto usato per le demolizioni resta quello rilevato automaticamente.</small>
+  <div id="extractNotes"></div>
+  <div id="legge10Panel" style="display:none">
+    <h3>Stratigrafie — riferimento da Legge 10/91</h3>
+    <small class="hint">Testo estratto così com'è dal documento caricato (nessuna interpretazione automatica dei
+    materiali): usalo come riferimento quando rispondi alle domande su murature, solai e copertura più avanti.</small>
+    <div id="legge10Notes"></div>
+    <details style="margin-top:.4rem">
+      <summary>Mostra i passaggi del documento individuati (<span id="legge10Count">0</span>)</summary>
+      <div id="legge10Testo" class="note-box" style="max-height:260px; overflow-y:auto"></div>
+    </details>
+  </div>
+
+  <div id="relazioneTecnicaPanel" style="display:none">
+    <h3>Relazione tecnica descrittiva dell'intervento</h3>
+    <small class="hint">Testo estratto così com'è dal documento caricato (nessuna interpretazione automatica):
+    usalo per verificare che il sistema abbia a disposizione una descrizione corretta del progetto.</small>
+    <div id="relazioneTecnicaNotes"></div>
+    <details style="margin-top:.4rem">
+      <summary>Mostra il testo estratto</summary>
+      <div id="relazioneTecnicaTesto" class="note-box" style="max-height:260px; overflow-y:auto; white-space:pre-wrap"></div>
+    </details>
+  </div>
+
+  <div id="renderPanel" style="display:none">
+    <h3>🖼️ Analisi visiva AI dei render caricati</h3>
+    <small class="hint">Osservazione qualitativa dell'AI sulle immagini caricate: riferimento per il controllo
+    manuale, non usata per calcolare automaticamente quantità o prezzi nel computo — verifica sempre di persona.</small>
+    <div id="renderSintesi" class="note-box"></div>
+    <ul id="renderElementi"></ul>
+  </div>
+
+  <div id="acusticaPanel" style="display:none">
+    <h3>Relazione acustica — materiali individuati</h3>
+    <small class="hint">Materiali/lavorazioni acustiche tipiche citati nel documento caricato: seleziona quelli
+    da aggiungere al computo come voce segnaposto (quantità e prezzo sempre da completare a mano, non deducibili
+    da un testo descrittivo). Deseleziona quelli non pertinenti a questo progetto.</small>
+    <div id="acusticaNotes"></div>
+    <div id="acusticaMateriali"></div>
+    <details style="margin-top:.4rem">
+      <summary>Mostra i passaggi del documento individuati (<span id="acusticaCount">0</span>)</summary>
+      <div id="acusticaTesto" class="note-box" style="max-height:260px; overflow-y:auto"></div>
+    </details>
+  </div>
+
+  <h3>Vani (stato di progetto)</h3>
+  <table class="edit-table" id="roomsTable">
+    <thead><tr><th>Etichetta</th><th>Piano</th><th>Superficie (m²)</th><th>Perimetro (m)</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <small class="hint">La colonna "Piano" si popola solo se la tavola caricata contiene più piante affiancate sullo
+  stesso foglio (es. piano terra + piano primo): il sistema assegna ogni vano al titolo di piano scritto più vicino
+  sulla pagina — verifica che l'assegnazione sia corretta, specialmente per vani vicini al confine tra due
+  piante.</small>
+  <button type="button" class="secondary small-add" id="btnAddRoom">+ Aggiungi vano</button>
+
+  <h3>Aperture (porte e finestre)</h3>
+  <table class="edit-table" id="openingsTable">
+    <thead><tr><th>Codice</th><th>Tipo</th><th>Conteggio</th><th>Larghezza (cm)</th><th>Altezza (cm)</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <button type="button" class="secondary small-add" id="btnAddOpening">+ Aggiungi apertura</button>
+
+  <h3>Elementi strutturali (pilastri/travi)</h3>
+  <table class="edit-table" id="structTable">
+    <thead><tr><th>Codice</th><th>Tipo</th><th>Conteggio</th><th>Dim. 1 (cm)</th><th>Dim. 2 (cm)</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <button type="button" class="secondary small-add" id="btnAddStruct">+ Aggiungi elemento</button>
+
+  <label>Sedime edificio (m², usato per il volume di scavo, fondazioni, solai e impermeabilizzazioni)</label>
+  <input type="number" step="0.01" id="footprintArea" value="0">
+  <label>Perimetro esterno edificio (m, contorno dell'involucro — usato solo per il cappotto termico, non per
+  l'intonaco interno)</label>
+  <input type="number" step="0.01" id="perimetroEsterno" value="0">
+  <label>Superficie di copertura in pianta (m², prima della correzione per la falda)</label>
+  <input type="number" step="0.01" id="roofArea" value="0">
+  <label>Superficie piscina (m², specchio d'acqua — 0 se non individuata in pianta)</label>
+  <input type="number" step="0.01" id="piscinaArea" value="0">
+  <label>Dimensioni piscina (m) — lunghezza x larghezza del rettangolo minimo che la contiene</label>
+  <div style="display:flex; gap:.5rem; align-items:center">
+    <input type="number" step="0.01" id="piscinaLunghezza" value="0" style="max-width:120px">
+    <span>x</span>
+    <input type="number" step="0.01" id="piscinaLarghezza" value="0" style="max-width:120px">
+    <span>(m)</span>
+  </div>
+
+  <button id="btnConfirmVani">Conferma vani e procedi</button>
+</section>
+
+<section id="step2" style="display:none">
+  <h2><span class="step-num">4</span><span class="step-title">Capitolato (facoltativo) e prezzario</span></h2>
+  <label>Testo del capitolato, se disponibile (incolla qui il contenuto)</label>
+  <textarea id="capitolatoText" rows="4" placeholder="Se non lo incolli, ti farò le domande necessarie sulle finiture e sulla struttura."></textarea>
+
+  <label>Prezzario di riferimento</label>
+  <select id="prezzarioSelect"></select>
+  <small class="hint">Se non carichi un prezzario, viene usato come riferimento il Prezzario Regione Lombardia 2022 (selezione curata delle voci ufficiali). Controlla sempre quale prezzario è selezionato qui prima di calcolare le voci: se resta selezionato per errore un prezzario di prova incompatibile, il computo può risultare vuoto.</small>
+
+  <details style="margin-top:.6rem">
+    <summary>Carica un prezzario reale (CSV)</summary>
+    <label>File CSV (colonne: categoria, sotto_tipo, codice, descrizione, unita_misura, prezzo)</label>
+    <small class="hint">IMPORTANTE: 'categoria' e 'sotto_tipo' non sono etichette libere a scelta. Devono contenere esattamente gli stessi valori interni usati dal sistema per riconoscere le lavorazioni (es. categoria "cantiere", sotto_tipo "approntamento"): un CSV con nomi diversi viene caricato correttamente ma non produce nessuna voce nel computo. Dopo il caricamento controlla l'avviso che compare qui sotto.</small>
+    <input type="file" id="prezzarioFile" accept=".csv" />
+    <label>Regione</label><input type="text" id="prezzarioRegione" value="Lombardia" />
+    <label>Anno</label><input type="number" id="prezzarioAnno" value="2026" />
+    <label>Nome</label><input type="text" id="prezzarioNome" value="Prezzario Regione Lombardia" />
+    <button id="btnUploadPrezzario">Carica prezzario</button>
+    <div id="prezzarioMsg"></div>
+  </details>
+
+  <details style="margin-top:.6rem" id="catalogoPrezzarioPanel">
+    <summary>Consulta il catalogo completo del prezzario ufficiale (oltre 35.000 voci, sola consultazione)</summary>
+    <small class="hint">Ricerca per codice o testo nel Prezzario Regione Lombardia 2022 completo (tutti e 4 i volumi ufficiali).
+      Solo consultazione: queste voci NON vengono usate per il calcolo automatico del computo — se trovi quella che ti
+      serve, usa "Copia" e incollala a mano nella tabella del computo al passaggio 8 (si incolla bene anche su Excel:
+      codice, descrizione, unità e prezzo finiscono già in colonne separate).</small>
+    <div style="display:flex; gap:.6rem; flex-wrap:wrap; margin-top:.5rem">
+      <input type="text" id="catalogoQuery" placeholder='Cerca per codice o testo (es. "intonaco", "1C.06")...' style="flex:1; min-width:220px">
+      <select id="catalogoVolume" style="flex:none; width:auto">
+        <option value="">Tutti i volumi</option>
+        <option value="Vol. 1.1">Vol. 1.1</option>
+        <option value="Vol. 1.2">Vol. 1.2</option>
+        <option value="Vol. 2.1">Vol. 2.1</option>
+        <option value="Vol. 2.2">Vol. 2.2</option>
+      </select>
+    </div>
+    <div id="catalogoMsg" class="msg" style="margin-top:.5rem"></div>
+    <div id="catalogoResults" style="margin-top:.5rem; display:flex; flex-direction:column; gap:.5rem"></div>
+  </details>
+
+  <button id="btnQuestions">Genera domande capitolato</button>
+</section>
+
+<section id="step3" style="display:none">
+  <h2><span class="step-num">5</span><span class="step-title">Domande su materiali, finiture e struttura</span></h2>
+  <div id="questionsContainer"></div>
+</section>
+
+<section id="step3b" style="display:none">
+  <h2><span class="step-num">6</span><span class="step-title">Parametri dimensionali (confermali o modificali)</span></h2>
+  <small class="hint">Non deducibili in modo affidabile dai soli elaborati grafici in questa versione: proposti con un valore tipico.</small>
+  <div id="paramsContainer"></div>
+</section>
+
+<section id="step4" style="display:none">
+  <h2><span class="step-num">7</span><span class="step-title">Dati progetto</span></h2>
+  <label>Nome progetto</label><input type="text" id="nomeProgetto" />
+  <label>Committente</label><input type="text" id="committente" />
+  <label>Ubicazione</label><input type="text" id="ubicazione" />
+  <button id="btnCalcola">Calcola computo metrico</button>
+  <div id="calcolaMsg"></div>
+</section>
+
+<section id="step5" style="display:none">
+  <h2><span class="step-num">8</span><span class="step-title">Computo metrico — verifica, correggi e commenta prima di scaricare</span></h2>
+  <small class="hint">Ogni riga è modificabile a mano (descrizione, quantità, prezzo unitario): l'importo si ricalcola
+  automaticamente. Nella colonna Commento puoi anche scrivere un'osservazione o una richiesta in linguaggio
+  naturale (es. "raddoppia la quantità", "il prezzo reale è 65 €/m²", "questa voce non serve, eliminala") e premere
+  Invio: un'intelligenza artificiale interpreta la richiesta e aggiorna la riga di conseguenza, spiegandoti cosa
+  ha fatto — la conversazione resta nel file Excel e nella relazione Word come traccia delle modifiche. Se
+  l'istruzione non è chiara o richiede un dato che non hai fornito, te lo segnala invece di indovinare. Puoi
+  comunque aggiungere o eliminare righe a mano. Solo quando scarichi i file qui sotto viene generato il documento
+  definitivo.</small>
+  <div style="overflow-x:auto">
+  <table class="edit-table" id="vociTable">
+    <thead><tr><th>N.</th><th>Codice</th><th>Categoria</th><th>Descrizione</th><th>U.M.</th><th>Quantità</th>
+    <th>Prezzo un. (€)</th><th>Importo (€)</th><th>Affidabilità</th><th>Commento</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  </div>
+  <button type="button" class="secondary small-add" id="btnAddVoce">+ Aggiungi voce</button>
+  <p><strong>Totale computo: € <span id="vociTotale">0,00</span></strong></p>
+
+  <div style="margin-top:1rem; padding-top:.8rem; border-top:1px solid #e0e6ea">
+    <button type="button" class="secondary" id="btnRevisionaAI">🤖 Rilettura AI del computo (facoltativa)</button>
+    <small class="hint">Fa rileggere l'intero computo a un modello linguistico più capace, come farebbe un
+    computista esperto in cerca di errori (prezzi o quantità fuori scala, incongruenze tra voci, categorie
+    mancanti). Segnala soltanto: non modifica nulla da solo — sei tu a decidere se e come intervenire.</small>
+    <div id="revisioneAiMsg"></div>
+    <div id="revisioneAiRisultato"></div>
+  </div>
+
+  <div id="downloadFormatiPanel" style="margin-top:1rem; padding-top:.8rem; border-top:1px solid #e0e6ea">
+    <p style="margin:0 0 .5rem"><strong>Scarica il computo definitivo</strong> — scegli il formato che ti serve, oppure tutti insieme in uno zip.</p>
+    <div style="display:flex; flex-wrap:wrap; gap:.5rem">
+      <button type="button" class="secondary" id="btnScaricaExcel">📊 Excel</button>
+      <button type="button" class="secondary" id="btnScaricaPdf">📄 PDF</button>
+      <button type="button" class="secondary" id="btnScaricaPrimus">🧮 Elenco prezzi PriMus</button>
+      <button type="button" class="secondary" id="btnScaricaWord">📝 Relazione Word</button>
+      <button id="btnGenerate">⬇️ Scarica tutto (ZIP)</button>
+    </div>
+  </div>
+  <div id="generateMsg"></div>
+</section>
+
+<script>
+const API = ""; // stesso host/porta del backend: il sito e le API sono un unico servizio
+let currentQuestions = [];
+let currentParams = [];
+let currentRooms = [];
+let currentOpenings = [];
+let currentStruct = [];
+let currentRoomsSdf = [];
+let currentConfronto = [];
+let currentNotes = [];
+let currentValidationMessages = [];
+let currentLegge10 = null;
+let currentAcustica = null;
+let currentRelazioneTecnica = null;
+let currentAnalisiRender = null;
+let currentVoci = [];
+let currentMeta = null;
+
+// --- Gestione file caricati con possibilità di rimuovere un singolo file per
+// errore (un <input type="file"> nativo non lo permette: selezionare di nuovo
+// sostituisce l'intera selezione). Ogni campo file tiene il proprio elenco in
+// fileStore[chiave]; ad ogni "scegli file" i nuovi file vengono AGGIUNTI
+// all'elenco esistente (non lo sostituiscono), e ogni file in elenco ha una
+// "×" per toglierlo. Tutto il resto del codice legge i file da qui
+// (getStoredFiles), mai più da input.files direttamente. ---
+const fileStore = {};
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderFileList(key) {
+  const container = document.getElementById(`${key}List`);
+  if (!container) return;
+  const files = fileStore[key] || [];
+  container.innerHTML = files.map((f, i) => `
+    <span class="file-chip">
+      <span class="name" title="${f.name.replace(/"/g, '&quot;')}">${f.name.replace(/</g, "&lt;")}</span>
+      <small class="hint">${formatFileSize(f.size)}</small>
+      <button type="button" data-key="${key}" data-idx="${i}" title="Rimuovi questo file">×</button>
+    </span>
+  `).join("");
+}
+
+function getStoredFiles(key) {
+  return fileStore[key] || [];
+}
+
+// Estrae SEMPRE un motivo leggibile da una risposta di errore del server,
+// qualunque sia la sua forma (il backend normalizza a {error, messages}, ma
+// questo resta un ripiego a più livelli nel caso arrivi qualcos'altro):
+// mai mostrare solo "Errore" senza spiegazione (richiesto esplicitamente).
+function messaggioErrore(data, res) {
+  if (data && Array.isArray(data.messages) && data.messages.length) return data.messages.join("\n");
+  if (data && data.error) return String(data.error);
+  if (data && data.detail) return typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+  return `Errore HTTP ${res ? res.status : "sconosciuto"}: il server non ha fornito ulteriori dettagli.`;
+}
+
+// Invio con avanzamento del caricamento: fetch() non espone il progresso di
+// invio del corpo della richiesta, quindi per i caricamenti pesanti (pianta +
+// prospetti + render, ecc.) si usa XMLHttpRequest, l'unica API del browser che
+// lo permette. onProgress(bytesInviatiInQuestaRichiesta) viene richiamato ad
+// ogni avanzamento; il chiamante lo combina con quanto già inviato nelle
+// eventuali richieste precedenti per ottenere una barra complessiva.
+function xhrUpload(url, formData, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.upload.addEventListener("progress", (ev) => {
+      if (ev.lengthComputable && onProgress) onProgress(ev.loaded);
+    });
+    xhr.addEventListener("load", () => {
+      let data = null;
+      try { data = JSON.parse(xhr.responseText); } catch (e) { /* risposta non JSON: data resta null */ }
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data });
+    });
+    xhr.addEventListener("error", () => reject(new Error("Errore di rete durante il caricamento.")));
+    xhr.addEventListener("abort", () => reject(new Error("Caricamento interrotto.")));
+    xhr.send(formData);
+  });
+}
+
+// Barra di avanzamento del caricamento: bronzo durante il caricamento,
+// diventa verde solo a caricamento riuscito e CONCLUSO (richiesto per i file
+// pesanti, dove l'invio può richiedere tempo su connessioni lente).
+//
+// IMPORTANTE: la percentuale qui riflette solo i byte INVIATI al server, non
+// il lavoro che il server fa dopo (validazione del PDF, poi estrazione di
+// vani/aperture/elementi, che può richiedere diversi secondi sui disegni più
+// complessi). Se si lasciasse salire fino al 100% appena finito l'invio, la
+// barra resterebbe ferma al 100% per tutto quel tempo di elaborazione —
+// sembrerebbe bloccata, anche se in realtà sta ancora lavorando (segnalato
+// da Franco: "sembra che si sia impallato" tra la fase 2 e la fase 3). Per
+// questo update() non supera mai il 96% e passa a un'animazione a righe con
+// l'etichetta "elaborazione in corso": il 100% vero e proprio (classe
+// "done") si vede SOLO quando la fase successiva si apre davvero.
+const uploadProgress = {
+  wrap: null, fill: null, label: null,
+  start(totalBytes) {
+    this.wrap = document.getElementById("uploadProgressWrap");
+    this.fill = document.getElementById("uploadProgressFill");
+    this.label = document.getElementById("uploadProgressLabel");
+    this.totalBytes = totalBytes;
+    this.fill.classList.remove("done", "in-elaborazione");
+    this.fill.style.width = "0%";
+    this.label.textContent = "Caricamento: 0%";
+    this.wrap.style.display = "block";
+  },
+  update(bytesSent) {
+    if (!this.totalBytes) return;
+    const pct = Math.min(100, Math.round((bytesSent / this.totalBytes) * 100));
+    if (pct >= 100) {
+      // Tutti i byte sono stati inviati, ma la risposta dal server (con il
+      // risultato vero e proprio) non è ancora arrivata: mostriamo che si sta
+      // ancora lavorando invece di un 100% fermo e ambiguo.
+      this.fill.classList.add("in-elaborazione");
+      this.fill.style.width = "96%";
+      this.label.textContent = "Caricamento completato, elaborazione in corso...";
+    } else {
+      this.fill.classList.remove("in-elaborazione");
+      this.fill.style.width = `${pct}%`;
+      this.label.textContent = `Caricamento: ${pct}%`;
+    }
+  },
+  done() {
+    this.fill.classList.remove("in-elaborazione");
+    this.fill.classList.add("done");
+    this.fill.style.width = "100%";
+    this.label.textContent = "Caricamento completato";
+  },
+  error(msg) {
+    // resta del colore "in corso" (non aggiunge la classe "done"): indica
+    // visivamente che il caricamento non si è concluso con successo
+    this.fill.classList.remove("in-elaborazione");
+    this.label.textContent = msg || "Caricamento interrotto per un errore";
+  },
+};
+
+function initFileInput(key) {
+  fileStore[key] = [];
+  const input = document.getElementById(key);
+  if (!input) return;
+  input.addEventListener("change", () => {
+    for (const f of Array.from(input.files)) {
+      // evita di aggiungere due volte lo stesso file se l'utente lo riseleziona per sbaglio
+      const giaPresente = fileStore[key].some(existing =>
+        existing.name === f.name && existing.size === f.size && existing.lastModified === f.lastModified);
+      if (!giaPresente) fileStore[key].push(f);
+    }
+    input.value = ""; // permette di riaprire la stessa selezione in futuro e continuare ad aggiungere
+    renderFileList(key);
+  });
+}
+
+document.addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".file-chip button");
+  if (!btn) return;
+  const { key, idx } = btn.dataset;
+  if (fileStore[key]) {
+    fileStore[key].splice(parseInt(idx, 10), 1);
+    renderFileList(key);
+  }
+});
+
+[
+  "fileProgetto", "fileStatoDiFatto", "fileStrutturale", "fileCopertura", "fileProspetti",
+  "fileLegge10", "fileAcustica", "fileRelazioneTecnica", "fileRender", "fileModello3d",
+  "fileAltriDocumenti",
+].forEach(initFileInput);
+
+function renderRoomsTable() {
+  const tbody = document.querySelector("#roomsTable tbody");
+  tbody.innerHTML = "";
+  currentRooms.forEach((r, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><input type="text" value="${(r.label||"").replace(/"/g,'&quot;')}" data-f="label"></td>
+      <td><input type="text" value="${(r.piano||"").replace(/"/g,'&quot;')}" data-f="piano" placeholder="-"></td>
+      <td><input type="number" step="0.01" value="${r.area_m2 ?? 0}" data-f="area_m2"></td>
+      <td><input type="number" step="0.01" value="${r.perimeter_m ?? 0}" data-f="perimeter_m"></td>
+      <td><button type="button" class="small">×</button></td>`;
+    tr.querySelectorAll("input").forEach(inp => inp.onchange = () => {
+      const f = inp.dataset.f;
+      currentRooms[i][f] = (f === "label" || f === "piano") ? inp.value : parseFloat(inp.value) || 0;
+    });
+    tr.querySelector("button").onclick = () => { currentRooms.splice(i, 1); renderRoomsTable(); };
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById("btnAddRoom").onclick = () => {
+  currentRooms.push({ label: "NUOVO VANO", piano: "", area_m2: 0, perimeter_m: 0, source: "aggiunto manualmente" });
+  renderRoomsTable();
+};
+
+function renderOpeningsTable() {
+  const tbody = document.querySelector("#openingsTable tbody");
+  tbody.innerHTML = "";
+  currentOpenings.forEach((o, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><input type="text" value="${(o.code||"").replace(/"/g,'&quot;')}" data-f="code"></td>
+      <td><select data-f="kind"><option value="porta"${o.kind==="porta"?" selected":""}>porta</option>
+        <option value="finestra"${o.kind==="finestra"?" selected":""}>finestra</option></select></td>
+      <td><input type="number" value="${o.count ?? 1}" data-f="count"></td>
+      <td><input type="number" step="0.1" value="${o.width_cm ?? ""}" data-f="width_cm"></td>
+      <td><input type="number" step="0.1" value="${o.height_cm ?? ""}" data-f="height_cm"></td>
+      <td><button type="button" class="small">×</button></td>`;
+    tr.querySelectorAll("input,select").forEach(inp => inp.onchange = () => {
+      const f = inp.dataset.f;
+      if (f === "code" || f === "kind") currentOpenings[i][f] = inp.value;
+      else currentOpenings[i][f] = inp.value === "" ? null : parseFloat(inp.value) || 0;
+    });
+    tr.querySelector("button").onclick = () => { currentOpenings.splice(i, 1); renderOpeningsTable(); };
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById("btnAddOpening").onclick = () => {
+  currentOpenings.push({ code: "P" + (currentOpenings.length + 1), kind: "porta", count: 1,
+    width_cm: null, height_cm: null, source: "aggiunto manualmente" });
+  renderOpeningsTable();
+};
+
+function renderStructTable() {
+  const tbody = document.querySelector("#structTable tbody");
+  tbody.innerHTML = "";
+  currentStruct.forEach((e, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><input type="text" value="${(e.code||"").replace(/"/g,'&quot;')}" data-f="code"></td>
+      <td><select data-f="kind"><option value="pilastro"${e.kind==="pilastro"?" selected":""}>pilastro</option>
+        <option value="trave"${e.kind==="trave"?" selected":""}>trave</option></select></td>
+      <td><input type="number" value="${e.count ?? 1}" data-f="count"></td>
+      <td><input type="number" step="0.1" value="${e.dim1_cm ?? ""}" data-f="dim1_cm"></td>
+      <td><input type="number" step="0.1" value="${e.dim2_cm ?? ""}" data-f="dim2_cm"></td>
+      <td><button type="button" class="small">×</button></td>`;
+    tr.querySelectorAll("input,select").forEach(inp => inp.onchange = () => {
+      const f = inp.dataset.f;
+      if (f === "code" || f === "kind") currentStruct[i][f] = inp.value;
+      else currentStruct[i][f] = inp.value === "" ? null : parseFloat(inp.value) || 0;
+    });
+    tr.querySelector("button").onclick = () => { currentStruct.splice(i, 1); renderStructTable(); };
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById("btnAddStruct").onclick = () => {
+  currentStruct.push({ code: "PL" + (currentStruct.length + 1), kind: "pilastro", count: 1, dim1_cm: null, dim2_cm: null });
+  renderStructTable();
+};
+
+function fmtEuro(n) {
+  return (n || 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Provenienza del dato (ComputoVoce.origine, vedi backend/models.py ORIGINE_INFO):
+// stessa etichetta/colore mostrati in Excel e Word, per coerenza.
+const ORIGINE_INFO = {
+  esplicita: ["Esplicita (da elaborato/abaco)", "🟢"],
+  derivata: ["Derivata (calcolata da dati misurati)", "🟢"],
+  inferita: ["Inferita (regola costruttiva/incidenza tipica)", "🟡"],
+  assunta: ["Assunta (valore indicativo generico)", "🟠"],
+  non_disponibile: ["N/D — da completare a mano", "⚪"],
+};
+
+function renderVociTable() {
+  const tbody = document.querySelector("#vociTable tbody");
+  tbody.innerHTML = "";
+  let totale = 0;
+  currentVoci.forEach((v, i) => {
+    const importo = (v.quantita || 0) * (v.prezzo_unitario || 0);
+    totale += importo;
+    const daCompletare = !!v.da_completare;
+    const tr = document.createElement("tr");
+    if (daCompletare) tr.classList.add("voce-da-completare");
+    tr.innerHTML = `<td>${i + 1}${daCompletare ? ' <span title="Da completare a mano: quantità/prezzo non calcolabili da questa pianta">⚠</span>' : ''}</td>
+      <td><input type="text" value="${(v.codice||"").replace(/"/g,'&quot;')}" data-f="codice" style="width:90px"></td>
+      <td><input type="text" value="${(v.categoria||"").replace(/"/g,'&quot;')}" data-f="categoria" style="width:120px"></td>
+      <td><input type="text" value="${(v.descrizione||"").replace(/"/g,'&quot;')}" data-f="descrizione" style="min-width:220px"></td>
+      <td><input type="text" value="${(v.unita_misura||"").replace(/"/g,'&quot;')}" data-f="unita_misura" style="width:55px"></td>
+      <td><input type="number" step="0.01" value="${v.quantita ?? 0}" data-f="quantita"></td>
+      <td><input type="number" step="0.01" value="${v.prezzo_unitario ?? 0}" data-f="prezzo_unitario"></td>
+      <td class="voceImporto">€ ${fmtEuro(importo)}</td>
+      <td class="affidabilita-badge" title="${(ORIGINE_INFO[v.origine] || ["",""])[0]}">${(ORIGINE_INFO[v.origine] || ["",""])[1]} ${(ORIGINE_INFO[v.origine] || ["",""])[0]}</td>
+      <td class="comment-cell" style="min-width:200px">
+        <div class="comment-log"></div>
+        <input type="text" class="comment-input" placeholder="Scrivi un'osservazione o una modifica e premi Invio...">
+      </td>
+      <td><button type="button" class="small">×</button></td>`;
+    tr.querySelectorAll("input[data-f]").forEach(inp => inp.onchange = () => {
+      const f = inp.dataset.f;
+      if (f === "quantita" || f === "prezzo_unitario") currentVoci[i][f] = parseFloat(inp.value) || 0;
+      else currentVoci[i][f] = inp.value;
+      // Corretta a mano dall'utente: da qui in poi è un dato esplicito, non più
+      // la stima originale del sistema.
+      currentVoci[i].origine = "esplicita";
+      if (f === "quantita" || f === "prezzo_unitario") renderVociTable();
+    });
+    renderCommentLog(tr.querySelector(".comment-log"), v.commento);
+    const aiInput = tr.querySelector(".comment-input");
+    aiInput.onkeydown = (ev) => {
+      if (ev.key === "Enter" && !ev.shiftKey) {
+        ev.preventDefault();
+        inviaIstruzioneAI(i, aiInput);
+      }
+    };
+    tr.querySelector("button.small").onclick = () => { currentVoci.splice(i, 1); renderVociTable(); };
+    tbody.appendChild(tr);
+  });
+  document.getElementById("vociTotale").textContent = fmtEuro(totale);
+}
+
+function renderCommentLog(el, commento) {
+  if (!commento) { el.innerHTML = ""; return; }
+  el.innerHTML = commento.split("\n").filter(l => l.trim()).map(line => {
+    let cls = "log-note";
+    if (line.startsWith("[Tu]")) cls = "log-tu";
+    else if (line.startsWith("[AI]")) cls = "log-ai";
+    else if (line.startsWith("[Errore]")) cls = "log-err";
+    return `<div class="${cls}">${line.replace(/</g, "&lt;")}</div>`;
+  }).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+async function inviaIstruzioneAI(i, inputEl) {
+  const testo = inputEl.value.trim();
+  if (!testo) return;
+  const v = currentVoci[i];
+  if (!v) return;
+  inputEl.disabled = true;
+  const placeholderOriginale = inputEl.placeholder;
+  inputEl.placeholder = "Elaborazione in corso...";
+  try {
+    const res = await fetch(`${API}/api/interpreta-commento`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        voce: {
+          codice: v.codice, categoria: v.categoria, descrizione: v.descrizione,
+          unita_misura: v.unita_misura, quantita: v.quantita, prezzo_unitario: v.prezzo_unitario,
+          note: v.note,
+        },
+        istruzione: testo,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const errMsg = messaggioErrore(data, res);
+      v.commento = (v.commento ? v.commento + "\n" : "") + `[Tu] ${testo}\n[Errore] ${errMsg}`;
+      renderVociTable();
+      return;
+    }
+    if (data.azione === "modifica") {
+      v.descrizione = data.descrizione;
+      v.unita_misura = data.unita_misura;
+      v.quantita = data.quantita;
+      v.prezzo_unitario = data.prezzo_unitario;
+      v.categoria = data.categoria;
+      // Corretta a mano dall'utente (tramite l'assistente AI): da qui in poi è
+      // un dato esplicito, non più la stima originale del sistema.
+      v.origine = "esplicita";
+    }
+    v.commento = (v.commento ? v.commento + "\n" : "") + `[Tu] ${testo}\n[AI] ${data.risposta || ""}`;
+    if (data.azione === "elimina") {
+      currentVoci.splice(i, 1);
+    }
+    renderVociTable();
+  } catch (e) {
+    v.commento = (v.commento ? v.commento + "\n" : "") + `[Tu] ${testo}\n[Errore] Connessione al servizio AI fallita: ${e}`;
+    renderVociTable();
+  } finally {
+    inputEl.disabled = false;
+    inputEl.placeholder = placeholderOriginale;
+  }
+}
+
+document.getElementById("btnRevisionaAI").onclick = async () => {
+  const btn = document.getElementById("btnRevisionaAI");
+  const msgEl = document.getElementById("revisioneAiMsg");
+  const risultatoEl = document.getElementById("revisioneAiRisultato");
+  if (!currentVoci.length) { alert("Nessuna voce da revisionare."); return; }
+  btn.disabled = true;
+  msgEl.textContent = "Rilettura in corso (può richiedere qualche secondo)...";
+  msgEl.className = "msg";
+  risultatoEl.innerHTML = "";
+  try {
+    const res = await fetch(`${API}/api/revisiona-computo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        voci: currentVoci,
+        meta: currentMeta || {},
+        tipo_intervento: tipoIntervento(),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      msgEl.textContent = messaggioErrore(data, res);
+      msgEl.className = "msg err";
+      return;
+    }
+    msgEl.textContent = data.sintesi || "";
+    msgEl.className = "msg ok";
+    const oss = data.osservazioni || [];
+    if (!oss.length) {
+      risultatoEl.innerHTML = "<p><small class=\"hint\">Nessuna osservazione: il modello non ha notato problemi evidenti.</small></p>";
+    } else {
+      risultatoEl.innerHTML = oss.map(o => {
+        const cls = "osservazione-" + (o.gravita || "media");
+        const riferimento = o.voce_numero ? `Voce n. ${o.voce_numero}: ` : "";
+        return `<div class="osservazione-box ${cls}"><strong>${riferimento}</strong>${(o.descrizione||"").replace(/</g,'&lt;')}</div>`;
+      }).join("");
+    }
+  } catch (e) {
+    msgEl.textContent = "Errore di connessione: " + e;
+    msgEl.className = "msg err";
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+document.getElementById("btnAddVoce").onclick = () => {
+  currentVoci.push({ numero: currentVoci.length + 1, codice: "MAN-01", categoria: "Altro",
+    descrizione: "Voce aggiunta manualmente", unita_misura: "cad", quantita: 1, prezzo_unitario: 0,
+    note: "Aggiunta manualmente in fase di revisione", commento: "", origine: "esplicita" });
+  renderVociTable();
+};
+
+function toggleAltro(qid) {
+  const checked = document.querySelector(`input[name="${qid}"]:checked`);
+  const box = document.getElementById(`altroBox_${qid}`);
+  if (box) box.style.display = (checked && checked.value.startsWith("Altro")) ? "block" : "none";
+}
+
+function tipoIntervento() {
+  return document.querySelector('input[name="tipoIntervento"]:checked').value;
+}
+
+async function loadChecklist() {
+  const tipo = tipoIntervento();
+  document.getElementById("rowStatoDiFatto").style.display = tipo === "ristrutturazione" ? "block" : "none";
+  const res = await fetch(`${API}/api/intake/requirements?tipo_intervento=${tipo}`);
+  const docs = await res.json();
+  const el = document.getElementById("docChecklist");
+  el.innerHTML = "<p><strong>Documenti richiesti per questo intervento:</strong></p>" + docs.map(d =>
+    `<div class="doc-row">${d.label} <span class="${d.obbligatorio ? 'req' : 'opt'}">${d.obbligatorio ? '(obbligatorio)' : '(facoltativo)'}</span>` +
+    (d.note ? `<br><small class="hint">${d.note}</small>` : "") + `</div>`
+  ).join("");
+}
+document.querySelectorAll('input[name="tipoIntervento"]').forEach(r => r.onchange = loadChecklist);
+loadChecklist();
+
+document.getElementById("btnValidate").onclick = async () => {
+  const progetto = getStoredFiles("fileProgetto");
+  if (!progetto.length) { alert("Seleziona almeno la pianta di progetto."); return; }
+  const tipo = tipoIntervento();
+  const sdf = getStoredFiles("fileStatoDiFatto");
+  if (tipo === "ristrutturazione" && !sdf.length) { alert("Per una ristrutturazione carica anche lo stato di fatto."); return; }
+  const strutturale = getStoredFiles("fileStrutturale");
+  const copertura = getStoredFiles("fileCopertura");
+  const prospetti = getStoredFiles("fileProspetti");
+  const legge10 = getStoredFiles("fileLegge10");
+  const acustica = getStoredFiles("fileAcustica");
+  const relazioneTecnica = getStoredFiles("fileRelazioneTecnica");
+  const render = getStoredFiles("fileRender");
+  const modello3d = getStoredFiles("fileModello3d");
+  const altriDocumenti = getStoredFiles("fileAltriDocumenti");
+  if (!relazioneTecnica.length) { alert("Carica la relazione tecnica descrittiva dell'intervento: è obbligatoria."); return; }
+
+  const toValidate = [];
+  progetto.forEach((f, i) => toValidate.push([`progetto ${i + 1}/${progetto.length}: ${f.name}`, f]));
+  sdf.forEach((f, i) => toValidate.push([`stato di fatto ${i + 1}/${sdf.length}: ${f.name}`, f]));
+  strutturale.forEach((f, i) => toValidate.push([`strutturale ${i + 1}/${strutturale.length}: ${f.name}`, f]));
+  copertura.forEach((f, i) => toValidate.push([`copertura ${i + 1}/${copertura.length}: ${f.name}`, f]));
+
+  // Tutti i file che verranno effettivamente trasmessi in questo giro (la
+  // verifica qui sotto invia di nuovo pianta/sdf/strutturale/copertura, poi
+  // /api/estrai-vani li invia tutti un'altra volta insieme agli altri campi):
+  // la barra di avanzamento segue i byte REALMENTE inviati sulla rete, quindi
+  // somma anche questa duplicazione — è quello che l'utente vede scorrere.
+  const tuttiIFilePerBarra = [
+    ...toValidate.map(([, f]) => f),
+    ...progetto, ...sdf, ...strutturale, ...copertura, ...prospetti, ...legge10,
+    ...acustica, ...relazioneTecnica, ...render, ...modello3d, ...altriDocumenti,
+  ];
+  const totaleByte = tuttiIFilePerBarra.reduce((s, f) => s + f.size, 0);
+  let byteInviatiFinora = 0;
+  uploadProgress.start(totaleByte);
+
+  const msgEl = document.getElementById("validateMsg");
+  msgEl.textContent = "Verifica in corso...";
+  msgEl.className = "msg";
+  let allOk = true;
+  let report = [];
+  for (const [label, file] of toValidate) {
+    const fd = new FormData();
+    fd.append("file", file);
+    const baseInviati = byteInviatiFinora;
+    try {
+      const { ok, status, data } = await xhrUpload(`${API}/api/validate`, fd,
+        (loaded) => uploadProgress.update(baseInviati + loaded));
+      byteInviatiFinora = baseInviati + file.size;
+      if (!ok || !data) {
+        report.push(`[${label}] ` + messaggioErrore(data, { status }));
+        allOk = false;
+      } else {
+        report.push(`[${label}] ` + data.messages.join(" "));
+        if (!data.is_valid) allOk = false;
+      }
+    } catch (e) {
+      byteInviatiFinora = baseInviati + file.size;
+      report.push(`[${label}] Errore di connessione: ${e}`);
+      allOk = false;
+    }
+  }
+  msgEl.textContent = report.join("\n");
+  msgEl.className = "msg " + (allOk ? "ok" : "err");
+  document.getElementById("step1b").style.display = "none";
+  document.getElementById("step2").style.display = "none";
+  if (!allOk) {
+    uploadProgress.error("Verifica non riuscita: vedi il motivo qui sotto.");
+    return;
+  }
+
+  // Elaborati conformi: estrai vani/aperture/elementi (senza calcolare ancora prezzi)
+  msgEl.textContent += "\n\nEstrazione di vani, aperture ed elementi in corso (può richiedere qualche secondo sui disegni più dettagliati)...";
+  const fd2 = new FormData();
+  fd2.append("tipo_intervento", tipo);
+  progetto.forEach(f => fd2.append("file_progetto", f));
+  sdf.forEach(f => fd2.append("file_stato_di_fatto", f));
+  strutturale.forEach(f => fd2.append("file_strutturale", f));
+  copertura.forEach(f => fd2.append("file_copertura", f));
+  prospetti.forEach(f => fd2.append("file_prospetti", f));
+  legge10.forEach(f => fd2.append("file_legge10", f));
+  acustica.forEach(f => fd2.append("file_acustica", f));
+  relazioneTecnica.forEach(f => fd2.append("file_relazione_tecnica", f));
+  render.forEach(f => fd2.append("file_render", f));
+  modello3d.forEach(f => fd2.append("file_modello_3d", f));
+  altriDocumenti.forEach(f => fd2.append("file_altri_documenti", f));
+  fd2.append("legend_page", document.getElementById("legendPage").value || "1");
+  fd2.append("structural_legend_page", document.getElementById("structuralLegendPage").value || "1");
+
+  const baseInviatiFase2 = byteInviatiFinora;
+  try {
+    const { ok, status, data: data2 } = await xhrUpload(`${API}/api/estrai-vani`, fd2,
+      (loaded) => uploadProgress.update(baseInviatiFase2 + loaded));
+    if (!ok || !data2) {
+      uploadProgress.error("Estrazione non riuscita: vedi il motivo qui sotto.");
+      msgEl.textContent = messaggioErrore(data2, { status });
+      msgEl.className = "msg err";
+      return;
+    }
+    currentRooms = data2.rooms;
+    currentOpenings = data2.openings;
+    currentStruct = data2.structural_elements;
+    currentRoomsSdf = data2.rooms_sdf || [];
+    currentConfronto = data2.confronto || [];
+    currentNotes = data2.note_metodologiche || [];
+    currentValidationMessages = data2.validation_messages || [];
+    currentLegge10 = data2.legge10 || null;
+    currentAcustica = data2.acustica || null;
+    currentRelazioneTecnica = data2.relazione_tecnica || null;
+    currentAnalisiRender = data2.analisi_render || null;
+
+    renderRoomsTable();
+    renderOpeningsTable();
+    renderStructTable();
+    document.getElementById("footprintArea").value = data2.footprint_area_m2 || 0;
+    document.getElementById("perimetroEsterno").value = data2.perimetro_esterno_m || 0;
+    document.getElementById("roofArea").value = data2.roof_area_m2 || 0;
+    document.getElementById("piscinaArea").value = data2.piscina_area_m2 || 0;
+    document.getElementById("piscinaLunghezza").value = data2.piscina_lunghezza_m || 0;
+    document.getElementById("piscinaLarghezza").value = data2.piscina_larghezza_m || 0;
+    const notesEl = document.getElementById("extractNotes");
+    notesEl.innerHTML = currentNotes.map(n => {
+      const esc = n.replace(/</g, "&lt;");
+      const cls = n.startsWith("ATTENZIONE") ? "note-box note-box-warn" : "note-box";
+      return `<div class="${cls}">${esc}</div>`;
+    }).join("");
+
+    const l10Panel = document.getElementById("legge10Panel");
+    if (currentLegge10) {
+      l10Panel.style.display = "block";
+      const l10Notes = document.getElementById("legge10Notes");
+      l10Notes.innerHTML = (currentLegge10.note || []).map(n =>
+        `<div class="note-box note-box-warn">${n.replace(/</g,'&lt;')}</div>`).join("");
+      const spessori = currentLegge10.spessori_rilevati_cm || {};
+      if (Object.keys(spessori).length) {
+        const labels = { parete_esterna: "parete esterna", solaio: "solaio", copertura: "copertura" };
+        l10Notes.innerHTML += `<div class="note-box">Spessori complessivi rilevati nel testo: ` +
+          Object.entries(spessori).map(([k, v]) => `${labels[k] || k}: ${v} cm`).join(", ") +
+          ` — verranno proposti (da confermare) nei parametri dimensionali al passaggio 5.</div>`;
+      }
+      const blocchi = currentLegge10.testo_riferimento || [];
+      document.getElementById("legge10Count").textContent = blocchi.length;
+      document.getElementById("legge10Testo").textContent = blocchi.join("\n\n---\n\n") || "Nessun passaggio trovato.";
+    } else {
+      l10Panel.style.display = "none";
+    }
+
+    const relTecPanel = document.getElementById("relazioneTecnicaPanel");
+    if (currentRelazioneTecnica) {
+      relTecPanel.style.display = "block";
+      const relTecNotes = document.getElementById("relazioneTecnicaNotes");
+      relTecNotes.innerHTML = (currentRelazioneTecnica.note || []).map(n =>
+        `<div class="note-box note-box-warn">${n.replace(/</g,'&lt;')}</div>`).join("");
+      document.getElementById("relazioneTecnicaTesto").textContent =
+        currentRelazioneTecnica.testo || "Nessun testo estratto.";
+    } else {
+      relTecPanel.style.display = "none";
+    }
+
+    const renderPanel = document.getElementById("renderPanel");
+    if (currentAnalisiRender && (currentAnalisiRender.elementi || []).length) {
+      renderPanel.style.display = "block";
+      document.getElementById("renderSintesi").textContent = currentAnalisiRender.sintesi || "";
+      const catLabels = {
+        facciata: "Facciata", parapetti: "Parapetti", infissi: "Infissi",
+        pavimentazione_esterna: "Pavimentazione esterna", altro: "Altro",
+      };
+      document.getElementById("renderElementi").innerHTML = currentAnalisiRender.elementi.map(e => {
+        const desc = (e.descrizione || "").replace(/</g, "&lt;");
+        if (e.area_m2 && e.banda_abbinata) {
+          // Superficie MISURATA (non stimata): altezza reale dal prospetto quotato x
+          // perimetro esterno rilevato dalla pianta — proposta come voce da confermare,
+          // non aggiunta automaticamente al computo finché l'utente non conferma qui.
+          const payload = JSON.stringify({
+            descrizione: e.descrizione || "", area_m2: e.area_m2, altezza_m: e.banda_abbinata.altezza_m,
+          }).replace(/"/g, "&quot;");
+          return `<li>
+            <label style="font-weight:normal">
+              <input type="checkbox" class="render-facciata-check" data-payload="${payload}" checked>
+              <strong>${catLabels[e.categoria] || e.categoria}:</strong> ${desc}
+              — superficie misurata: <strong>${e.area_m2} m²</strong>
+              (altezza ${e.banda_abbinata.altezza_m} m dal prospetto quotato x perimetro esterno)
+            </label>
+            <br><small class="hint" style="margin-left:1.4rem">Se confermata, verrà aggiunta al computo come voce
+            con quantità reale ma prezzo e materiale da completare a mano (verifica sempre di persona prima).</small>
+          </li>`;
+        }
+        return `<li><strong>${catLabels[e.categoria] || e.categoria}:</strong> ${desc}</li>`;
+      }).join("");
+    } else {
+      renderPanel.style.display = "none";
+    }
+
+    const acuPanel = document.getElementById("acusticaPanel");
+    if (currentAcustica) {
+      acuPanel.style.display = "block";
+      const acuNotes = document.getElementById("acusticaNotes");
+      acuNotes.innerHTML = (currentAcustica.note || []).map(n =>
+        `<div class="note-box note-box-warn">${n.replace(/</g,'&lt;')}</div>`).join("");
+      const materiali = currentAcustica.materiali_rilevati || [];
+      const matEl = document.getElementById("acusticaMateriali");
+      matEl.innerHTML = materiali.map((m, i) =>
+        `<label style="display:block; font-weight:normal; margin:.3rem 0">
+           <input type="checkbox" class="acustica-materiale-check" data-materiale="${m.materiale.replace(/"/g,'&quot;')}" checked>
+           <strong>${m.materiale}</strong>
+           ${m.contesto ? `<br><small class="hint" style="margin-left:1.4rem">"${m.contesto.replace(/</g,'&lt;')}"</small>` : ""}
+         </label>`
+      ).join("") || "<p><small class=\"hint\">Nessun materiale acustico tipico riconosciuto automaticamente.</small></p>";
+      const blocchiAcu = currentAcustica.testo_riferimento || [];
+      document.getElementById("acusticaCount").textContent = blocchiAcu.length;
+      document.getElementById("acusticaTesto").textContent = blocchiAcu.join("\n\n---\n\n") || "Nessun passaggio trovato.";
+    } else {
+      acuPanel.style.display = "none";
+    }
+
+    msgEl.textContent = report.join("\n") + `\n\nEstratti ${currentRooms.length} vani, ${currentOpenings.length} aperture, ${currentStruct.length} elementi strutturali.`;
+    msgEl.className = "msg ok";
+    document.getElementById("step1b").style.display = "block";
+    uploadProgress.done();
+  } catch (e) {
+    uploadProgress.error("Caricamento interrotto per un errore.");
+    msgEl.textContent = "Errore durante l'estrazione: " + e;
+    msgEl.className = "msg err";
+  }
+};
+
+document.getElementById("btnConfirmVani").onclick = () => {
+  const footprint = parseFloat(document.getElementById("footprintArea").value) || 0;
+  const roof = parseFloat(document.getElementById("roofArea").value) || 0;
+  if (currentRooms.length === 0 && currentStruct.length === 0 && footprint <= 0 && roof <= 0) {
+    alert("Non c'è ancora nulla da computare: la tabella dei vani è vuota e anche sedime/copertura sono a 0.\n\n" +
+          "Aggiungi almeno un vano (con \"+ Aggiungi vano\") oppure indica un valore di sedime o copertura prima di procedere, " +
+          "altrimenti la generazione del computo fallirà.");
+    return;
+  }
+  document.getElementById("step2").style.display = "block";
+  loadPrezzari();
+  document.getElementById("step2").scrollIntoView({ behavior: "smooth" });
+};
+
+async function loadPrezzari(preferId) {
+  // Selezione di default: MAI affidarsi al primo elemento del menu (che senza
+  // un criterio esplicito finirebbe per essere semplicemente il prezzario
+  // caricato più di recente, incluso un CSV di prova incompatibile con le
+  // categorie riconosciute dal sistema, con il rischio di un computo vuoto
+  // senza che l'utente se ne accorga). Priorità: 1) preferId, se passato
+  // esplicitamente (es. appena dopo un caricamento riuscito); 2) il prezzario
+  // già selezionato in precedenza in questa sessione, se ancora presente in
+  // elenco; 3) il prezzario di riferimento predefinito (Regione Lombardia 2022);
+  // 4) il primo dell'elenco, solo come ultima risorsa.
+  const res = await fetch(`${API}/api/prezzari`);
+  const list = await res.json();
+  const sel = document.getElementById("prezzarioSelect");
+  const valorePrecedente = sel.value;
+  sel.innerHTML = "";
+  list.forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = `${p.nome} (${p.regione}, ${p.anno})${p.is_placeholder ? " — DEFAULT" : ""}`;
+    opt.dataset.placeholder = p.is_placeholder ? "1" : "";
+    sel.appendChild(opt);
+  });
+  const ids = list.map(p => String(p.id));
+  let daSelezionare = null;
+  if (preferId != null && ids.includes(String(preferId))) daSelezionare = String(preferId);
+  else if (valorePrecedente && ids.includes(valorePrecedente)) daSelezionare = valorePrecedente;
+  else {
+    const placeholder = list.find(p => p.is_placeholder);
+    daSelezionare = placeholder ? String(placeholder.id) : (ids[0] || null);
+  }
+  if (daSelezionare != null) sel.value = daSelezionare;
+}
+
+document.getElementById("btnUploadPrezzario").onclick = async () => {
+  const fileInput = document.getElementById("prezzarioFile");
+  if (!fileInput.files.length) { alert("Seleziona un CSV."); return; }
+  const fd = new FormData();
+  fd.append("file", fileInput.files[0]);
+  fd.append("regione", document.getElementById("prezzarioRegione").value);
+  fd.append("anno", document.getElementById("prezzarioAnno").value);
+  fd.append("nome", document.getElementById("prezzarioNome").value);
+  const msgEl = document.getElementById("prezzarioMsg");
+  try {
+    const res = await fetch(`${API}/api/prezzari/upload`, { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    if (data.avviso) {
+      // Il CSV è comunque stato salvato (l'utente può volerlo correggere in un
+      // secondo momento), ma un avviso di questo tipo va mostrato in modo
+      // evidente: senza questo controllo l'unico segnale del problema arriva
+      // solo dopo, come un computo vuoto senza spiegazione.
+      msgEl.textContent = `Importate ${data.voci_importate} voci (${data.voci_riconosciute} riconosciute dal sistema). ⚠️ ${data.avviso}`;
+      msgEl.className = "msg err";
+    } else {
+      msgEl.textContent = `Importate ${data.voci_importate} voci, tutte riconosciute dal sistema.`;
+      msgEl.className = "msg ok";
+    }
+    loadPrezzari(data.prezzario_id);
+  } catch (e) {
+    msgEl.textContent = "Errore: " + e;
+    msgEl.className = "msg err";
+  }
+};
+
+document.getElementById("btnQuestions").onclick = async () => {
+  const fd = new FormData();
+  fd.append("capitolato_text", document.getElementById("capitolatoText").value);
+  const res = await fetch(`${API}/api/questions`, { method: "POST", body: fd });
+  const data = await res.json();
+  currentQuestions = data.questions;
+  const container = document.getElementById("questionsContainer");
+  container.innerHTML = "";
+  if (currentQuestions.length === 0) {
+    container.innerHTML = "<p>Il capitolato copre già tutte le categorie: nessuna domanda necessaria.</p>";
+  }
+  currentQuestions.forEach(q => {
+    const div = document.createElement("div");
+    div.className = "question";
+    const opts = q.opzioni.map(o =>
+      `<label style="font-weight:normal"><input type="radio" name="${q.id}" value="${o.replace(/"/g, '&quot;')}" onchange="toggleAltro('${q.id}')"> ${o}</label>`
+    ).join("");
+    div.innerHTML = `<strong>${q.categoria}</strong><br>${q.testo}<br>` + opts +
+      `<div id="altroBox_${q.id}" style="display:none; margin-top:.4rem">
+         <input type="text" id="altroText_${q.id}" placeholder="Specifica qui cosa intendi per &quot;Altro&quot;...">
+       </div>`;
+    container.appendChild(div);
+  });
+
+  const resP = await fetch(`${API}/api/parametri`);
+  currentParams = await resP.json();
+  const pContainer = document.getElementById("paramsContainer");
+  pContainer.innerHTML = "";
+  const spessori = (currentLegge10 && currentLegge10.spessori_rilevati_cm) || {};
+  currentParams.forEach(p => {
+    const div = document.createElement("div");
+    div.className = "param-row";
+    let valore = p.default;
+    let daLegge10 = false;
+    if (p.id === "spessore_muro_portante_cm" && spessori.parete_esterna) {
+      valore = spessori.parete_esterna;
+      daLegge10 = true;
+    }
+    if (p.id === "spessore_solaio_cm" && spessori.solaio) {
+      valore = spessori.solaio;
+      daLegge10 = true;
+    }
+    div.innerHTML = `<label style="margin:0">${p.label} (${p.unita})${p.note ? `<br><small class="hint">${p.note}</small>` : ""}` +
+      (daLegge10 ? `<br><small class="hint" style="color:#1c6b3d">Proposto da Legge 10/91 caricata: conferma o correggi.</small>` : "") +
+      `</label>` +
+      `<input type="number" step="0.01" id="param_${p.id}" value="${valore}">`;
+    pContainer.appendChild(div);
+  });
+
+  document.getElementById("step3").style.display = "block";
+  document.getElementById("step3b").style.display = "block";
+  document.getElementById("step4").style.display = "block";
+};
+
+document.getElementById("btnCalcola").onclick = async () => {
+  const answers = {};
+  currentQuestions.forEach(q => {
+    const checked = document.querySelector(`input[name="${q.id}"]:checked`);
+    if (checked) {
+      answers[q.id] = checked.value;
+      if (checked.value.startsWith("Altro")) {
+        const t = document.getElementById(`altroText_${q.id}`);
+        if (t && t.value.trim()) answers[`${q.id}_dettaglio`] = t.value.trim();
+      }
+    }
+  });
+  const parametri = {};
+  currentParams.forEach(p => {
+    const el = document.getElementById(`param_${p.id}`);
+    if (el && el.value !== "") parametri[p.id] = parseFloat(el.value);
+  });
+
+  const fd = new FormData();
+  fd.append("tipo_intervento", tipoIntervento());
+  fd.append("rooms_json", JSON.stringify(currentRooms));
+  fd.append("openings_json", JSON.stringify(currentOpenings));
+  fd.append("structural_elements_json", JSON.stringify(currentStruct));
+  fd.append("footprint_area_m2", document.getElementById("footprintArea").value || "0");
+  fd.append("perimetro_esterno_m", document.getElementById("perimetroEsterno").value || "0");
+  fd.append("roof_area_m2", document.getElementById("roofArea").value || "0");
+  const piscinaLunghezza = parseFloat(document.getElementById("piscinaLunghezza").value) || 0;
+  const piscinaLarghezza = parseFloat(document.getElementById("piscinaLarghezza").value) || 0;
+  fd.append("piscina_area_m2", document.getElementById("piscinaArea").value || "0");
+  fd.append("piscina_lunghezza_m", String(piscinaLunghezza));
+  fd.append("piscina_larghezza_m", String(piscinaLarghezza));
+  fd.append("piscina_perimetro_m", String(2 * (piscinaLunghezza + piscinaLarghezza)));
+  fd.append("rooms_sdf_json", JSON.stringify(currentRoomsSdf));
+  fd.append("confronto_json", JSON.stringify(currentConfronto));
+  fd.append("note_metodologiche_json", JSON.stringify(currentNotes));
+  fd.append("validation_messages_json", JSON.stringify(currentValidationMessages));
+
+  fd.append("nome_progetto", document.getElementById("nomeProgetto").value);
+  fd.append("committente", document.getElementById("committente").value);
+  fd.append("ubicazione", document.getElementById("ubicazione").value);
+  fd.append("capitolato_text", document.getElementById("capitolatoText").value);
+  fd.append("answers_json", JSON.stringify(answers));
+  fd.append("parametri_json", JSON.stringify(parametri));
+  fd.append("prezzario_id", document.getElementById("prezzarioSelect").value || "");
+  const acusticaSelezionati = Array.from(document.querySelectorAll(".acustica-materiale-check:checked"))
+    .map(el => el.dataset.materiale);
+  fd.append("acustica_materiali_json", JSON.stringify(acusticaSelezionati));
+  const renderFacciateSelezionati = Array.from(document.querySelectorAll(".render-facciata-check:checked"))
+    .map(el => JSON.parse(el.dataset.payload));
+  fd.append("render_facciate_json", JSON.stringify(renderFacciateSelezionati));
+
+  const msgEl = document.getElementById("calcolaMsg");
+  msgEl.textContent = "Calcolo del computo in corso...";
+  msgEl.className = "msg";
+  document.getElementById("step5").style.display = "none";
+  try {
+    const res = await fetch(`${API}/api/calcola-voci`, { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) {
+      msgEl.textContent = messaggioErrore(data, res);
+      msgEl.className = "msg err";
+      return;
+    }
+    currentVoci = data.voci;
+    currentMeta = data.meta;
+    currentConfronto = data.confronto || currentConfronto;
+    currentNotes = data.note_metodologiche || currentNotes;
+    currentValidationMessages = data.validation_messages || currentValidationMessages;
+
+    renderVociTable();
+    msgEl.textContent = `Calcolate ${currentVoci.length} voci, totale € ${fmtEuro(data.totale)}. Verificale qui sotto prima di scaricare.`;
+    msgEl.className = "msg ok";
+    document.getElementById("generateMsg").textContent = "";
+    document.getElementById("step5").style.display = "block";
+    document.getElementById("step5").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    msgEl.textContent = "Errore durante il calcolo del computo: " + e;
+    msgEl.className = "msg err";
+  }
+};
+
+document.getElementById("btnGenerate").onclick = async () => {
+  if (!currentVoci.length) { alert("Non ci sono voci da generare."); return; }
+  // rinumera le voci secondo l'ordine attuale della tabella (dopo eventuali aggiunte/eliminazioni)
+  currentVoci.forEach((v, i) => v.numero = i + 1);
+
+  const fd = new FormData();
+  fd.append("tipo_intervento", (currentMeta && currentMeta.tipo_intervento) || tipoIntervento());
+  fd.append("voci_json", JSON.stringify(currentVoci));
+  fd.append("nome_progetto", (currentMeta && currentMeta.nome_progetto) || document.getElementById("nomeProgetto").value);
+  fd.append("committente", (currentMeta && currentMeta.committente) || document.getElementById("committente").value);
+  fd.append("ubicazione", (currentMeta && currentMeta.ubicazione) || document.getElementById("ubicazione").value);
+  fd.append("prezzario_nome", (currentMeta && currentMeta.prezzario_nome) || "");
+  fd.append("confronto_json", JSON.stringify(currentConfronto));
+  fd.append("note_metodologiche_json", JSON.stringify(currentNotes));
+  fd.append("validation_messages_json", JSON.stringify(currentValidationMessages));
+
+  const msgEl = document.getElementById("generateMsg");
+  msgEl.textContent = "Generazione dei file in corso...";
+  msgEl.className = "msg";
+  try {
+    const res = await fetch(`${API}/api/generate`, { method: "POST", body: fd });
+    if (!res.ok) {
+      const err = await res.json();
+      msgEl.textContent = messaggioErrore(err, res);
+      msgEl.className = "msg err";
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "computo_metrico_estimativo.zip";
+    a.click();
+    msgEl.textContent = "Computo generato e scaricato (contiene Excel completo, PDF, elenco prezzi per PriMus e relazione Word, con la colonna Commento che hai eventualmente compilato).";
+    msgEl.className = "msg ok";
+  } catch (e) {
+    msgEl.textContent = "Errore: " + e;
+    msgEl.className = "msg err";
+  }
+};
+</script>
+
+<script>
+// Download di un SINGOLO formato (Excel / PDF / PriMus / Word) invece dello
+// zip completo: stessi dati del computo (voci correnti, meta, note), stessa
+// funzione handler riutilizzata per i 4 pulsanti — cambia solo il campo
+// "formato" e il nome del file scaricato. Aggiunto su richiesta di Franco,
+// senza toccare il pulsante "Scarica tutto (ZIP)" già esistente qui sopra.
+(function () {
+  const FORMATI = {
+    btnScaricaExcel: { formato: "excel", nomeFile: "computo_metrico.xlsx", label: "Excel" },
+    btnScaricaPdf: { formato: "pdf", nomeFile: "computo_metrico.pdf", label: "PDF" },
+    btnScaricaPrimus: { formato: "primus", nomeFile: "elenco_prezzi_per_primus.xlsx", label: "elenco prezzi per PriMus" },
+    btnScaricaWord: { formato: "word", nomeFile: "relazione_computo.docx", label: "relazione Word" },
+  };
+
+  async function scaricaFormato(formato, nomeFile, label) {
+    if (!currentVoci.length) { alert("Non ci sono voci da generare."); return; }
+    currentVoci.forEach((v, i) => v.numero = i + 1);
+
+    const fd = new FormData();
+    fd.append("formato", formato);
+    fd.append("tipo_intervento", (currentMeta && currentMeta.tipo_intervento) || tipoIntervento());
+    fd.append("voci_json", JSON.stringify(currentVoci));
+    fd.append("nome_progetto", (currentMeta && currentMeta.nome_progetto) || document.getElementById("nomeProgetto").value);
+    fd.append("committente", (currentMeta && currentMeta.committente) || document.getElementById("committente").value);
+    fd.append("ubicazione", (currentMeta && currentMeta.ubicazione) || document.getElementById("ubicazione").value);
+    fd.append("prezzario_nome", (currentMeta && currentMeta.prezzario_nome) || "");
+    fd.append("confronto_json", JSON.stringify(currentConfronto));
+    fd.append("note_metodologiche_json", JSON.stringify(currentNotes));
+    fd.append("validation_messages_json", JSON.stringify(currentValidationMessages));
+
+    const msgEl = document.getElementById("generateMsg");
+    msgEl.textContent = `Generazione del file ${label} in corso...`;
+    msgEl.className = "msg";
+    try {
+      const res = await fetch(`${API}/api/scarica-formato`, { method: "POST", body: fd });
+      if (!res.ok) {
+        const err = await res.json();
+        msgEl.textContent = messaggioErrore(err, res);
+        msgEl.className = "msg err";
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = nomeFile;
+      a.click();
+      msgEl.textContent = `File ${label} generato e scaricato.`;
+      msgEl.className = "msg ok";
+      // Come per "Scarica tutto (ZIP)": ogni download riuscito è anche
+      // un'occasione per salvare un checkpoint nello storico (e, se l'utente
+      // ha un account, nel backup cloud — vedi lo script più sotto), così chi
+      // scarica solo un formato non perde comunque il lavoro fatto finora.
+      if (typeof saveCurrentProjectToHistory === "function") saveCurrentProjectToHistory(undefined, false);
+    } catch (e) {
+      msgEl.textContent = "Errore: " + e;
+      msgEl.className = "msg err";
+    }
+  }
+
+  Object.keys(FORMATI).forEach((id) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const { formato, nomeFile, label } = FORMATI[id];
+    btn.onclick = () => scaricaFormato(formato, nomeFile, label);
+  });
+})();
+</script>
+
+<!-- ============================================================
+     Sfondo 3D/WebGL + feedback sonoro: puramente decorativi, non
+     interferiscono con la logica applicativa sopra (nessuna
+     dipendenza reciproca). Se Three.js non si carica (rete assente
+     o bloccata), lo sfondo resta semplicemente il colore di base
+     definito in CSS: nessun errore bloccante per il resto del sito.
+     ============================================================ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  if (typeof THREE === "undefined") return; // niente rete/CDN: sfondo resta il colore piatto, nessun problema
+  const canvas = document.getElementById("webgl-bg");
+  if (!canvas) return;
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const isNarrow = window.innerWidth < 720;
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  } catch (e) { return; }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera.position.set(0, 0.6, 7);
+
+  // Modellino wireframe a piani sovrapposti (massing architettonico), disegnato
+  // come uno schizzo a china sul tema chiaro, o come un modello che emerge dal
+  // buio con bagliore bronzo sul tema scuro. I colori/opacità si aggiornano al
+  // volo quando l'utente cambia tema (vedi setWebglTheme più sotto).
+  const isDarkNow = () => document.documentElement.getAttribute("data-theme") === "dark";
+  const THEME_WEBGL = {
+    light: { ink: 0x6b4a2c, bronze: 0xb4703f, lineOpacity: 0.28, particle: 0xb4703f, particleOpacity: 0.22, gridMain: 0xb4703f, gridSec: 0xe7dcc6, gridOpacity: 0.1 },
+    dark: { ink: 0xc69566, bronze: 0xe3b98a, lineOpacity: 0.6, particle: 0xdcbd93, particleOpacity: 0.42, gridMain: 0xc69566, gridSec: 0x2a231c, gridOpacity: 0.16 },
+  };
+
+  const group = new THREE.Group();
+  const lineMats = [];
+  const floors = 7;
+  for (let i = 0; i < floors; i++) {
+    const w = 2.4 - i * 0.18;
+    const geo = new THREE.BoxGeometry(w, 0.42, w);
+    const edges = new THREE.EdgesGeometry(geo);
+    const mat = new THREE.LineBasicMaterial({ color: 0xb4703f, transparent: true, opacity: 0.28 });
+    lineMats.push({ mat, t: i / (floors - 1) });
+    const line = new THREE.LineSegments(edges, mat);
+    line.position.y = i * 0.5 - 1.6;
+    group.add(line);
+  }
+  scene.add(group);
+
+  // Campo di particelle, tenue
+  const particleCount = isNarrow ? 220 : 500;
+  const positions = new Float32Array(particleCount * 3);
+  for (let i = 0; i < particleCount; i++) {
+    positions[i * 3] = (Math.random() - 0.5) * 24;
+    positions[i * 3 + 1] = (Math.random() - 0.5) * 14;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 20 - 4;
+  }
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const pMat = new THREE.PointsMaterial({ color: 0xb4703f, size: 0.026, transparent: true, opacity: 0.22 });
+  const particles = new THREE.Points(pGeo, pMat);
+  scene.add(particles);
+
+  // Griglia di base (foglio da disegno)
+  const gridHelper = new THREE.GridHelper(30, 30, 0xb4703f, 0xe7dcc6);
+  gridHelper.position.y = -2.3;
+  gridHelper.material.transparent = true;
+  gridHelper.material.opacity = 0.1;
+  scene.add(gridHelper);
+
+  function applyWebglTheme(dark) {
+    const cfg = dark ? THEME_WEBGL.dark : THEME_WEBGL.light;
+    const inkC = new THREE.Color(cfg.ink);
+    const bronzeC = new THREE.Color(cfg.bronze);
+    lineMats.forEach(({ mat, t }) => {
+      mat.color.copy(inkC.clone().lerp(bronzeC, t));
+      mat.opacity = cfg.lineOpacity;
+    });
+    pMat.color.setHex(cfg.particle);
+    pMat.opacity = cfg.particleOpacity;
+    gridHelper.material.opacity = cfg.gridOpacity;
+    if (gridHelper.material.color) gridHelper.material.color.setHex(cfg.gridMain);
+    if (reduceMotion) renderer.render(scene, camera); // ridisegna un frame statico col nuovo tema
+  }
+  applyWebglTheme(isDarkNow());
+  window.__estimaSetWebglTheme = applyWebglTheme; // richiamata dall'interruttore tema più sotto
+
+  let mouseX = 0, mouseY = 0;
+  if (!isNarrow) {
+    window.addEventListener("mousemove", (e) => {
+      mouseX = (e.clientX / window.innerWidth - 0.5);
+      mouseY = (e.clientY / window.innerHeight - 0.5);
+    });
+  }
+
+  let raf;
+  function animate(t) {
+    raf = requestAnimationFrame(animate);
+    group.rotation.y = t * 0.00016;
+    group.position.y = Math.sin(t * 0.0005) * 0.1;
+    particles.rotation.y = t * 0.00003;
+    if (!reduceMotion) {
+      camera.position.x += (mouseX * 1.2 - camera.position.x) * 0.02;
+      camera.position.y += (0.6 - mouseY * 0.9 - camera.position.y) * 0.02;
+    }
+    camera.lookAt(0, -0.3, 0);
+    renderer.render(scene, camera);
+  }
+  if (reduceMotion) {
+    renderer.render(scene, camera); // frame singolo statico, nessuna animazione continua
+  } else {
+    raf = requestAnimationFrame(animate);
+    // Il form è lungo (8 passaggi): una volta che l'utente ha scrollato ben
+    // oltre l'intestazione iniziale, lo sfondo 3D animato non si vede quasi
+    // più (resta dietro pannelli ormai opachi), ma continuerebbe comunque a
+    // occupare CPU/GPU ad ogni frame. Mettendolo in pausa quando si scrolla
+    // in profondità (e riprendendolo se si torna su) si toglie carico al
+    // browser proprio nelle sezioni più lunghe, senza cambiare nulla di
+    // visibile per l'utente.
+    let animInPausa = false;
+    window.addEventListener("scroll", () => {
+      const lontanoDallInizio = window.scrollY > window.innerHeight * 1.5;
+      if (lontanoDallInizio && !animInPausa) {
+        animInPausa = true;
+        cancelAnimationFrame(raf);
+      } else if (!lontanoDallInizio && animInPausa) {
+        animInPausa = false;
+        raf = requestAnimationFrame(animate);
+      }
+    }, { passive: true });
+  }
+
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // --- breve feedback sonoro sui pulsanti principali (Web Audio API generato al
+  // volo, nessun file esterno): il primo click di un utente sblocca l'audio del
+  // browser, i successivi suonano un tono brevissimo. Puramente decorativo:
+  // se l'audio è bloccato dal browser non succede nulla di grave. ---
+  let actx;
+  function blip(freq) {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const osc = actx.createOscillator();
+      const gain = actx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, actx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.035, actx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + 0.2);
+      osc.connect(gain).connect(actx.destination);
+      osc.start();
+      osc.stop(actx.currentTime + 0.22);
+    } catch (e) { /* audio non disponibile: nessun problema, è solo decorativo */ }
+  }
+  document.querySelectorAll("button:not(.secondary):not(.small)").forEach((b) => {
+    b.addEventListener("click", () => blip(520));
+  });
+  document.querySelectorAll(".radio-group input[type=radio]").forEach((r, i) => {
+    r.addEventListener("change", () => blip(i === 0 ? 440 : 600));
+  });
+})();
+</script>
+
+<!-- ============================================================
+     Animazioni di comparsa allo scroll: puramente visive, si limitano
+     ad aggiungere/rimuovere classi CSS sulle section esistenti. Se
+     l'utente preferisce animazioni ridotte, o qualcosa va storto, il
+     contenuto resta semplicemente visibile fin da subito (mai nascosto
+     per sempre).
+     ============================================================ -->
+<script>
+(function () {
+  try {
+    const sections = document.querySelectorAll("section[id]");
+    const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion || !("IntersectionObserver" in window) || !sections.length) return;
+
+    sections.forEach((s) => s.classList.add("reveal-init"));
+
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("in-view");
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.08, rootMargin: "0px 0px -60px 0px" });
+    sections.forEach((s) => io.observe(s));
+
+    // Rete di sicurezza: se per qualsiasi motivo l'observer non scattasse (layout
+    // particolare, sezione mai intersecata perché sbloccata fuori viewport...),
+    // dopo poco rendiamo comunque tutto visibile.
+    setTimeout(() => { sections.forEach((s) => s.classList.add("in-view")); }, 2500);
+  } catch (e) {
+    document.querySelectorAll("section.reveal-init").forEach((s) => s.classList.add("in-view"));
+  }
+})();
+</script>
+
+<!-- ============================================================
+     Barra fissa di navigazione tra i passi (1-8) + interruttore tema
+     chiaro/scuro. Costruita interamente via JS, senza toccare l'HTML
+     né la logica applicativa esistente: legge le stesse section#stepN
+     già presenti e la stessa convenzione style.display "none"/"block"
+     già usata dal resto del sito per sapere quali passi sono
+     raggiungibili.
+     ============================================================ -->
+<script>
+(function () {
+  try {
+    const STEP_IDS = ["step0", "step1", "step1b", "step2", "step3", "step3b", "step4", "step5"];
+    const sections = STEP_IDS.map((id) => document.getElementById(id)).filter(Boolean);
+    if (!sections.length) return;
+
+    function reduceMotionNav() {
+      return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    }
+    function isReachable(sec) {
+      return sec.style.display !== "none";
+    }
+
+    const nav = document.createElement("div");
+    nav.id = "stepNav";
+    const brand = document.createElement("a");
+    brand.className = "step-nav-brand";
+    brand.href = "/";
+    brand.textContent = "Estima";
+    brand.title = "Torna alla home";
+    nav.appendChild(brand);
+
+    const btnById = {};
+    sections.forEach((sec, i) => {
+      const btn = document.createElement("span");
+      btn.className = "step-nav-btn";
+      btn.textContent = String(i + 1);
+      btn.setAttribute("role", "button");
+      btn.setAttribute("tabindex", "0");
+      const titleEl = sec.querySelector(".step-title");
+      btn.title = titleEl ? titleEl.textContent.trim() : ("Passo " + (i + 1));
+      btn.addEventListener("click", () => goToStep(sec, btn));
+      btn.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goToStep(sec, btn); }
+      });
+      nav.appendChild(btn);
+      btnById[sec.id] = btn;
+    });
+
+    const fill = document.createElement("span");
+    fill.className = "step-nav-fill";
+    nav.appendChild(fill);
+
+    const themeBtn = document.createElement("span");
+    themeBtn.className = "step-nav-theme";
+    themeBtn.title = "Cambia tema chiaro/scuro";
+    themeBtn.setAttribute("role", "button");
+    themeBtn.setAttribute("tabindex", "0");
+    themeBtn.innerHTML = '<span class="icon-moon">\u{1F319}</span><span class="icon-sun">☀️</span>';
+    nav.appendChild(themeBtn);
+
+    document.body.insertBefore(nav, document.body.firstChild);
+
+    function goToStep(sec, btn) {
+      if (!isReachable(sec)) {
+        // Passo non ancora sbloccato: una piccola scossa per far capire che non
+        // si può ancora saltare avanti, nessuno scroll verso contenuto vuoto.
+        btn.style.transition = "transform .12s ease";
+        btn.style.transform = "translateX(-3px)";
+        setTimeout(() => { btn.style.transform = "translateX(3px)"; }, 90);
+        setTimeout(() => { btn.style.transform = ""; }, 180);
+        return;
+      }
+      const navHeight = nav.offsetHeight || 52;
+      const top = sec.getBoundingClientRect().top + window.pageYOffset - navHeight - 14;
+      window.scrollTo({ top, behavior: reduceMotionNav() ? "auto" : "smooth" });
+    }
+
+    function refreshReachability() {
+      sections.forEach((sec) => {
+        const btn = btnById[sec.id];
+        if (!btn) return;
+        if (isReachable(sec)) btn.classList.add("done");
+        else btn.classList.remove("done");
+      });
+    }
+    refreshReachability();
+
+    // Osserva i cambi di style applicati dal codice esistente man mano che
+    // l'utente sblocca i passi successivi (stessa convenzione display
+    // "none"/"block" già usata in tutta l'app), per aggiornare i pulsanti
+    // senza dover modificare quella logica.
+    if ("MutationObserver" in window) {
+      const mo = new MutationObserver(() => refreshReachability());
+      sections.forEach((sec) => mo.observe(sec, { attributes: true, attributeFilter: ["style"] }));
+    }
+
+    // Scroll-spy: evidenzia il passo attualmente a schermo. Basato sulla
+    // posizione di scroll (non su IntersectionObserver a soglia percentuale)
+    // perché le section hanno altezze molto diverse tra loro (alcune più
+    // lunghe di uno schermo intero): un semplice "qual è l'ultima section il
+    // cui inizio ha già superato la barra fissa" funziona per tutte le
+    // altezze, mentre una soglia di intersezione fissa non scatterebbe mai
+    // per le section più lunghe del viewport.
+    let spyTicking = false;
+    function updateActiveOnScroll() {
+      spyTicking = false;
+      const navHeight = nav.offsetHeight || 52;
+      const spyY = navHeight + 40;
+      let current = null;
+      for (const sec of sections) {
+        if (sec.style.display === "none") continue;
+        const rect = sec.getBoundingClientRect();
+        if (rect.top <= spyY) current = sec;
+      }
+      if (!current) current = sections.find((s) => s.style.display !== "none") || sections[0];
+      const btn = btnById[current.id];
+      if (btn && !btn.classList.contains("active")) {
+        Object.values(btnById).forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+      }
+    }
+    window.addEventListener("scroll", () => {
+      if (!spyTicking) {
+        spyTicking = true;
+        requestAnimationFrame(updateActiveOnScroll);
+      }
+    }, { passive: true });
+    window.addEventListener("resize", () => { requestAnimationFrame(updateActiveOnScroll); });
+    updateActiveOnScroll();
+
+    // --- interruttore tema chiaro/scuro ---
+    function setTheme(dark) {
+      try {
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+        else document.documentElement.removeAttribute("data-theme");
+        localStorage.setItem("estima-theme", dark ? "dark" : "light");
+      } catch (e) { /* localStorage non disponibile: il tema resta solo per questa sessione */ }
+      if (window.__estimaSetWebglTheme) {
+        try { window.__estimaSetWebglTheme(dark); } catch (e) {}
+      }
+    }
+    function toggleTheme() {
+      const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+      setTheme(!isDark);
+    }
+    themeBtn.addEventListener("click", toggleTheme);
+    themeBtn.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleTheme(); }
+    });
+    window.__estimaSetTheme = setTheme;
+  } catch (e) {
+    // La barra di navigazione è un'aggiunta accessoria: se qualcosa va storto
+    // qui, il resto del sito (upload, calcolo, download...) continua a
+    // funzionare normalmente.
+  }
+})();
+</script>
+
+<!-- ============================================================
+     Bozza automatica nel browser (localStorage): salva periodicamente lo
+     stato del progetto in corso (vani/aperture, domande, parametri,
+     computo finale...) così che un ricaricamento accidentale della pagina
+     non faccia perdere il lavoro. LIMITE IMPORTANTE, non aggirabile per
+     motivi di sicurezza del browser: i file PDF già selezionati NON possono
+     essere salvati né ripristinati automaticamente — se il ripristino
+     avviene prima del passaggio "Verifica elaborati", andranno riselezionati.
+     Riusa le funzioni di rendering già esistenti (renderRoomsTable,
+     renderVociTable, ecc.) invece di ricostruire l'interfaccia da zero, così
+     il ripristino resta sempre coerente con la logica applicativa reale.
+     ============================================================ -->
+<script>
+const DRAFT_KEY = "estima-draft-v1";
+
+function buildDraftSnapshot() {
+  try {
+    const fieldIds = ["footprintArea", "perimetroEsterno", "roofArea", "piscinaArea",
+      "piscinaLunghezza", "piscinaLarghezza", "capitolatoText", "nomeProgetto", "committente", "ubicazione"];
+    const fields = {};
+    fieldIds.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) fields[id] = el.value;
+    });
+    const prezzarioEl = document.getElementById("prezzarioSelect");
+    if (prezzarioEl) fields.prezzarioSelect = prezzarioEl.value;
+
+    const tipoEl = document.querySelector('input[name="tipoIntervento"]:checked');
+
+    // Stessa logica già usata da btnCalcola per leggere le risposte alle
+    // domande sul capitolato: replicata qui solo in lettura, per fotografare
+    // lo stato attuale senza toccare l'handler originale.
+    const answers = {};
+    (typeof currentQuestions !== "undefined" ? currentQuestions : []).forEach((q) => {
+      let checkedVal = null;
+      document.querySelectorAll("input[type=radio]").forEach((inp) => {
+        if (inp.name === q.id && inp.checked) checkedVal = inp.value;
+      });
+      if (checkedVal != null) {
+        answers[q.id] = checkedVal;
+        if (checkedVal.indexOf("Altro") === 0) {
+          const t = document.getElementById("altroText_" + q.id);
+          if (t && t.value.trim()) answers[q.id + "_dettaglio"] = t.value.trim();
+        }
+      }
+    });
+    const paramValues = {};
+    (typeof currentParams !== "undefined" ? currentParams : []).forEach((p) => {
+      const el = document.getElementById("param_" + p.id);
+      if (el) paramValues[p.id] = el.value;
+    });
+
+    function visibile(id) {
+      const el = document.getElementById(id);
+      return el ? el.style.display !== "none" : false;
+    }
+
+    return {
+      v: 1,
+      savedAt: Date.now(),
+      tipoIntervento: tipoEl ? tipoEl.value : null,
+      fields: fields,
+      unlocked: {
+        step1b: visibile("step1b"), step2: visibile("step2"), step3: visibile("step3"),
+        step3b: visibile("step3b"), step4: visibile("step4"), step5: visibile("step5"),
+      },
+      currentRooms: typeof currentRooms !== "undefined" ? currentRooms : [],
+      currentOpenings: typeof currentOpenings !== "undefined" ? currentOpenings : [],
+      currentStruct: typeof currentStruct !== "undefined" ? currentStruct : [],
+      currentRoomsSdf: typeof currentRoomsSdf !== "undefined" ? currentRoomsSdf : [],
+      currentConfronto: typeof currentConfronto !== "undefined" ? currentConfronto : [],
+      currentNotes: typeof currentNotes !== "undefined" ? currentNotes : [],
+      currentValidationMessages: typeof currentValidationMessages !== "undefined" ? currentValidationMessages : [],
+      currentLegge10: typeof currentLegge10 !== "undefined" ? currentLegge10 : null,
+      currentAcustica: typeof currentAcustica !== "undefined" ? currentAcustica : null,
+      currentRelazioneTecnica: typeof currentRelazioneTecnica !== "undefined" ? currentRelazioneTecnica : null,
+      currentAnalisiRender: typeof currentAnalisiRender !== "undefined" ? currentAnalisiRender : null,
+      currentVoci: typeof currentVoci !== "undefined" ? currentVoci : [],
+      currentMeta: typeof currentMeta !== "undefined" ? currentMeta : null,
+      answers: answers,
+      paramValues: paramValues,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+function draftHaContenutoUtile(snap) {
+  if (!snap) return false;
+  const f = snap.fields || {};
+  return !!(
+    (snap.currentRooms && snap.currentRooms.length) ||
+    (snap.currentStruct && snap.currentStruct.length) ||
+    (snap.currentVoci && snap.currentVoci.length) ||
+    f.capitolatoText || f.nomeProgetto || f.committente ||
+    parseFloat(f.footprintArea) > 0 || parseFloat(f.roofArea) > 0
+  );
+}
+
+function saveDraft() {
+  try {
+    const snap = buildDraftSnapshot();
+    // Niente da salvare (pagina ancora vuota): non sporchiamo il localStorage
+    // con bozze prive di contenuto reale.
+    if (!draftHaContenutoUtile(snap)) return;
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(snap));
+  } catch (e) {
+    // localStorage pieno, bloccato dal browser o non disponibile: il
+    // salvataggio automatico si limita a non fare nulla, nessun errore
+    // bloccante per il resto del sito.
+  }
+}
+
+async function restoreDraft(saved) {
+  try {
+    if (saved.tipoIntervento) {
+      document.querySelectorAll('input[name="tipoIntervento"]').forEach((r) => {
+        r.checked = (r.value === saved.tipoIntervento);
+      });
+    }
+    if (typeof currentRooms !== "undefined") currentRooms = saved.currentRooms || [];
+    if (typeof currentOpenings !== "undefined") currentOpenings = saved.currentOpenings || [];
+    if (typeof currentStruct !== "undefined") currentStruct = saved.currentStruct || [];
+    if (typeof currentRoomsSdf !== "undefined") currentRoomsSdf = saved.currentRoomsSdf || [];
+    if (typeof currentConfronto !== "undefined") currentConfronto = saved.currentConfronto || [];
+    if (typeof currentNotes !== "undefined") currentNotes = saved.currentNotes || [];
+    if (typeof currentValidationMessages !== "undefined") currentValidationMessages = saved.currentValidationMessages || [];
+    if (typeof currentLegge10 !== "undefined") currentLegge10 = saved.currentLegge10 || null;
+    if (typeof currentAcustica !== "undefined") currentAcustica = saved.currentAcustica || null;
+    if (typeof currentRelazioneTecnica !== "undefined") currentRelazioneTecnica = saved.currentRelazioneTecnica || null;
+    if (typeof currentAnalisiRender !== "undefined") currentAnalisiRender = saved.currentAnalisiRender || null;
+    if (typeof currentVoci !== "undefined") currentVoci = saved.currentVoci || [];
+    if (typeof currentMeta !== "undefined") currentMeta = saved.currentMeta || null;
+
+    const f = saved.fields || {};
+    ["footprintArea", "perimetroEsterno", "roofArea", "piscinaArea", "piscinaLunghezza", "piscinaLarghezza",
+      "capitolatoText", "nomeProgetto", "committente", "ubicazione"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && f[id] !== undefined) el.value = f[id];
+    });
+
+    const unlocked = saved.unlocked || {};
+
+    if (unlocked.step1b) {
+      if (typeof renderRoomsTable === "function") renderRoomsTable();
+      if (typeof renderOpeningsTable === "function") renderOpeningsTable();
+      if (typeof renderStructTable === "function") renderStructTable();
+      if (saved.currentNotes && saved.currentNotes.length) {
+        const notesEl = document.getElementById("extractNotes");
+        if (notesEl) {
+          notesEl.innerHTML = saved.currentNotes.map((n) => {
+            const esc = String(n).replace(/</g, "&lt;");
+            const cls = String(n).indexOf("ATTENZIONE") === 0 ? "note-box note-box-warn" : "note-box";
+            return `<div class="${cls}">${esc}</div>`;
+          }).join("");
+        }
+      }
+      const s1b = document.getElementById("step1b");
+      if (s1b) s1b.style.display = "block";
+    }
+
+    if (unlocked.step2) {
+      const s2 = document.getElementById("step2");
+      if (s2) s2.style.display = "block";
+      if (typeof loadPrezzari === "function") {
+        try { await loadPrezzari(f.prezzarioSelect); } catch (e) { /* elenco prezzari non raggiungibile ora: si ricarica da solo al prossimo tentativo */ }
+      }
+    }
+
+    if (unlocked.step3 || unlocked.step3b || unlocked.step4) {
+      const btnQ = document.getElementById("btnQuestions");
+      if (btnQ && typeof btnQ.onclick === "function") {
+        try {
+          // "Replay" dello stesso handler che genera normalmente le domande: più
+          // affidabile di ricostruire a mano l'HTML delle domande/parametri, e
+          // garantisce di restare sempre allineato alla logica reale del sito.
+          await btnQ.onclick();
+          const answers = saved.answers || {};
+          Object.keys(answers).forEach((key) => {
+            if (key.endsWith("_dettaglio")) return;
+            const val = answers[key];
+            document.querySelectorAll("input[type=radio]").forEach((inp) => {
+              if (inp.name === key && inp.value === val) {
+                inp.checked = true;
+                if (typeof toggleAltro === "function") { try { toggleAltro(key); } catch (e) {} }
+              }
+            });
+            const dettaglio = answers[key + "_dettaglio"];
+            if (dettaglio) {
+              const t = document.getElementById("altroText_" + key);
+              if (t) t.value = dettaglio;
+            }
+          });
+          const paramValues = saved.paramValues || {};
+          Object.keys(paramValues).forEach((pid) => {
+            const el = document.getElementById("param_" + pid);
+            if (el) el.value = paramValues[pid];
+          });
+        } catch (e) {
+          // Il server non ha risposto in questo momento: l'utente può sempre
+          // rigenerare le domande a mano con l'apposito pulsante.
+        }
+      }
+      if (!unlocked.step3) { const s = document.getElementById("step3"); if (s) s.style.display = "none"; }
+      if (!unlocked.step3b) { const s = document.getElementById("step3b"); if (s) s.style.display = "none"; }
+      if (!unlocked.step4) { const s = document.getElementById("step4"); if (s) s.style.display = "none"; }
+    }
+
+    if (unlocked.step5 && currentVoci && currentVoci.length && typeof renderVociTable === "function") {
+      renderVociTable();
+      const s5 = document.getElementById("step5");
+      if (s5) s5.style.display = "block";
+    }
+  } catch (e) {
+    console.error("Ripristino bozza non riuscito:", e);
+  }
+}
+
+(function () {
+  try {
+    let raw = null;
+    try { raw = localStorage.getItem(DRAFT_KEY); } catch (e) {}
+    if (raw) {
+      let saved = null;
+      try { saved = JSON.parse(raw); } catch (e) {}
+      if (saved && draftHaContenutoUtile(saved)) {
+        const banner = document.createElement("div");
+        banner.id = "draftBanner";
+        banner.className = "note-box";
+        banner.style.cssText = "display:flex; flex-wrap:wrap; align-items:center; gap:.8rem; justify-content:space-between; margin-bottom:1.6rem;";
+        let whenTxt = "";
+        try { whenTxt = new Date(saved.savedAt || Date.now()).toLocaleString("it-IT"); } catch (e) {}
+        banner.innerHTML = '<span>È stata trovata una bozza salvata automaticamente nel browser' +
+          (whenTxt ? " (" + whenTxt + ")" : "") +
+          '. I file PDF già selezionati non vengono salvati: se li avevi già caricati dovrai riselezionarli.</span>' +
+          '<span style="display:flex; gap:.6rem; flex:none;">' +
+          '<button type="button" class="secondary" id="draftRestoreBtn">Ripristina bozza</button>' +
+          '<button type="button" class="secondary" id="draftDiscardBtn">Elimina bozza</button>' +
+          '</span>';
+        const anchor = document.getElementById("step0");
+        if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(banner, anchor);
+        const restoreBtn = document.getElementById("draftRestoreBtn");
+        const discardBtn = document.getElementById("draftDiscardBtn");
+        if (restoreBtn) restoreBtn.addEventListener("click", async () => {
+          restoreBtn.disabled = true;
+          restoreBtn.textContent = "Ripristino in corso...";
+          await restoreDraft(saved);
+          banner.remove();
+        });
+        if (discardBtn) discardBtn.addEventListener("click", () => {
+          try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+          banner.remove();
+        });
+      }
+    }
+  } catch (e) {
+    // Se qualcosa va storto nel controllo della bozza salvata, la pagina si
+    // comporta semplicemente come se non ce ne fosse una: nessun blocco.
+  }
+
+  // Salvataggio automatico: periodico + quando la scheda viene messa in
+  // background o chiusa. Non interferisce con nessun pulsante esistente, si
+  // limita a fotografare lo stato corrente ogni pochi secondi.
+  setInterval(saveDraft, 8000);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) saveDraft(); });
+  window.addEventListener("beforeunload", saveDraft);
+})();
+</script>
+
+<!-- ============================================================
+     Anteprima miniatura dei PDF/immagini caricati: puramente
+     decorativa. Se pdf.js non si carica (rete assente) le miniature dei
+     PDF restano semplicemente un'iconcina generica: nessun blocco per
+     la selezione/rimozione dei file, che continua a funzionare come
+     prima. Non tocca renderFileList originale: gli si "aggancia sopra"
+     riassegnandolo (le funzioni dichiarate a livello di script sono
+     condivise tra tutti i tag script classici della pagina), così il
+     codice esistente per la gestione dei file resta invariato.
+     ============================================================ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+<script>
+(function () {
+  try {
+    if (typeof renderFileList !== "function" || typeof getStoredFiles !== "function") return;
+    if (typeof pdfjsLib !== "undefined" && pdfjsLib.GlobalWorkerOptions) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    }
+
+    const thumbCache = new WeakMap(); // File -> URL immagine già generata, per non ricalcolarla ad ogni render
+    const originalRenderFileList = renderFileList;
+    renderFileList = function (key) {
+      originalRenderFileList(key);
+      addThumbnails(key);
+    };
+
+    function addThumbnails(key) {
+      const container = document.getElementById(`${key}List`);
+      if (!container) return;
+      const files = getStoredFiles(key) || [];
+      const chips = container.querySelectorAll(".file-chip");
+      chips.forEach((chip, i) => {
+        const f = files[i];
+        if (!f || chip.querySelector(".file-thumb")) return;
+        const thumb = document.createElement("span");
+        thumb.className = "file-thumb";
+        thumb.textContent = "📄";
+        chip.insertBefore(thumb, chip.firstChild);
+        renderThumbInto(thumb, f);
+      });
+    }
+
+    function showImg(el, url) {
+      el.textContent = "";
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "";
+      el.appendChild(img);
+    }
+
+    function renderThumbInto(el, file) {
+      if (thumbCache.has(file)) { showImg(el, thumbCache.get(file)); return; }
+      if (file.type && file.type.indexOf("image/") === 0) {
+        const url = URL.createObjectURL(file);
+        thumbCache.set(file, url);
+        showImg(el, url);
+        return;
+      }
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+      if (isPdf && typeof pdfjsLib !== "undefined") {
+        renderPdfThumb(el, file);
+      }
+      // altri formati (skp/rvt/3dm...): resta l'iconcina generica già impostata
+    }
+
+    async function renderPdfThumb(el, file) {
+      try {
+        const buf = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        const page = await pdf.getPage(1);
+        const baseViewport = page.getViewport({ scale: 1 });
+        const scale = 80 / Math.max(baseViewport.width, baseViewport.height);
+        const viewport = page.getViewport({ scale: scale || 1 });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(viewport.width));
+        canvas.height = Math.max(1, Math.round(viewport.height));
+        const ctx = canvas.getContext("2d");
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const dataUrl = canvas.toDataURL("image/png");
+        thumbCache.set(file, dataUrl);
+        // Il file potrebbe essere stato rimosso dall'elenco nel frattempo (rendering
+        // asincrono): se l'elemento non è più nel DOM, non fa comunque danno.
+        showImg(el, dataUrl);
+      } catch (e) {
+        // PDF danneggiato, criptato o pagina non leggibile: resta l'iconcina generica
+      }
+    }
+  } catch (e) {
+    // Le miniature sono un extra puramente visivo: se qualcosa non va, i chip dei
+    // file restano semplicemente senza immagine, senza bloccare nulla.
+  }
+})();
+</script>
+
+<!-- ============================================================
+     Storico progetti locale (in questo browser): a differenza della
+     bozza automatica (un solo "ultimo stato", pensata per non perdere il
+     lavoro in corso), qui si accumula un elenco di checkpoint con nome,
+     salvati esplicitamente o in automatico ad ogni computo generato e
+     scaricato. Riusa lo stesso formato di buildDraftSnapshot()/restoreDraft()
+     già scritti per la bozza, così "aprire" un progetto dello storico
+     funziona esattamente come ripristinare una bozza. IMPORTANTE: è locale
+     a QUESTO browser/computer, non condiviso tra dispositivi o utenti, e
+     soggetto allo stesso limite dei file PDF non salvabili.
+     ============================================================ -->
+<script>
+const PROJECTS_KEY = "estima-projects-v1";
+const PROJECTS_MAX = 20;
+
+function loadProjectHistory() {
+  try {
+    const raw = localStorage.getItem(PROJECTS_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function persistProjectHistory(list) {
+  try {
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify(list.slice(0, PROJECTS_MAX)));
+  } catch (e) {
+    // localStorage pieno o non disponibile: il salvataggio nello storico si
+    // limita a non riuscire, senza bloccare nient'altro nel sito.
+  }
+}
+
+function fmtDataOraStorico(ts) {
+  try { return new Date(ts).toLocaleString("it-IT"); } catch (e) { return ""; }
+}
+
+function saveCurrentProjectToHistory(nomeManuale, manual) {
+  try {
+    const snap = typeof buildDraftSnapshot === "function" ? buildDraftSnapshot() : null;
+    if (!snap || (typeof draftHaContenutoUtile === "function" && !draftHaContenutoUtile(snap))) {
+      if (manual) alert("Non c'è ancora nulla da salvare: il progetto è vuoto.");
+      return null;
+    }
+    const nome = (nomeManuale || (snap.fields && snap.fields.nomeProgetto) || "").trim() || "Progetto senza nome";
+    const totaleEl = document.getElementById("vociTotale");
+    const entry = {
+      id: "p" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+      savedAt: Date.now(),
+      nome: nome,
+      committente: (snap.fields && snap.fields.committente) || "",
+      ubicazione: (snap.fields && snap.fields.ubicazione) || "",
+      totaleTesto: totaleEl ? totaleEl.textContent : "",
+      snapshot: snap,
+    };
+    const list = loadProjectHistory();
+    list.unshift(entry);
+    persistProjectHistory(list);
+    renderProjectHistoryPanel();
+    return entry;
+  } catch (e) {
+    return null;
+  }
+}
+
+function renderProjectHistoryPanel() {
+  const listEl = document.getElementById("projectHistoryList");
+  const countEl = document.getElementById("projectHistoryCount");
+  if (!listEl) return;
+  const list = loadProjectHistory();
+  if (countEl) countEl.textContent = String(list.length);
+  if (!list.length) {
+    listEl.innerHTML = '<p><small class="hint">Nessun progetto salvato ancora in questo browser. ' +
+      'Viene aggiunto automaticamente un checkpoint ad ogni computo generato e scaricato, oppure puoi ' +
+      'salvarne uno a mano qui sotto in qualsiasi momento.</small></p>';
+    return;
+  }
+  listEl.innerHTML = "";
+  list.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "history-row";
+    const metaParts = [entry.committente, entry.ubicazione, fmtDataOraStorico(entry.savedAt)].filter(Boolean);
+    let meta = metaParts.join(" · ").replace(/</g, "&lt;");
+    if (entry.totaleTesto) meta += (meta ? " · " : "") + "€ " + String(entry.totaleTesto).replace(/</g, "&lt;");
+    row.innerHTML =
+      '<div class="history-main">' +
+        '<div class="history-name">' + String(entry.nome).replace(/</g, "&lt;") + '</div>' +
+        '<div class="history-meta">' + meta + '</div>' +
+      '</div>' +
+      '<div class="history-actions">' +
+        '<button type="button" class="secondary" data-action="apri">Apri</button>' +
+        '<button type="button" class="secondary" data-action="elimina">Elimina</button>' +
+      '</div>';
+    const btnApri = row.querySelector('[data-action="apri"]');
+    const btnElimina = row.querySelector('[data-action="elimina"]');
+    if (btnApri) btnApri.addEventListener("click", async () => {
+      if (!confirm('Aprire "' + entry.nome + '"? Il progetto attualmente aperto, se non salvato, verrà sostituito.')) return;
+      if (typeof restoreDraft === "function") {
+        btnApri.disabled = true;
+        btnApri.textContent = "Apertura...";
+        await restoreDraft(entry.snapshot);
+      }
+      const panel = document.getElementById("projectHistoryPanel");
+      if (panel) panel.open = false;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    if (btnElimina) btnElimina.addEventListener("click", () => {
+      if (!confirm('Eliminare definitivamente "' + entry.nome + '" dallo storico locale? Non si può annullare.')) return;
+      persistProjectHistory(loadProjectHistory().filter((e) => e.id !== entry.id));
+      renderProjectHistoryPanel();
+    });
+    listEl.appendChild(row);
+  });
+}
+
+(function () {
+  try {
+    const anchor = document.getElementById("step0");
+    if (anchor && anchor.parentNode && !document.getElementById("projectHistoryPanel")) {
+      const details = document.createElement("details");
+      details.id = "projectHistoryPanel";
+      details.className = "note-box";
+      details.style.marginBottom = "1.6rem";
+      details.innerHTML =
+        '<summary>Progetti recenti salvati in questo browser (<span id="projectHistoryCount">0</span>)</summary>' +
+        '<div id="projectHistoryList" style="margin-top:.8rem; display:flex; flex-direction:column; gap:.6rem;"></div>' +
+        '<div style="margin-top:.8rem;">' +
+        '<button type="button" class="secondary" id="btnSaveToHistory">Salva progetto corrente nello storico</button>' +
+        '</div>';
+      anchor.parentNode.insertBefore(details, anchor);
+      renderProjectHistoryPanel();
+      const btnSave = document.getElementById("btnSaveToHistory");
+      if (btnSave) btnSave.addEventListener("click", () => {
+        const campoNome = document.getElementById("nomeProgetto");
+        const nome = prompt("Nome con cui salvare questo progetto nello storico:", campoNome ? campoNome.value : "");
+        if (nome === null) return; // annullato dall'utente
+        saveCurrentProjectToHistory(nome, true);
+      });
+    }
+
+    // Ad ogni generazione riuscita del computo (zip scaricato), salva in
+    // automatico un checkpoint nello storico locale: così anche chi non usa
+    // mai il salvataggio manuale si ritrova comunque una cronologia dei
+    // progetti completati. Non modifica l'handler originale: lo richiama e
+    // aggiunge il salvataggio solo dopo, controllando l'esito dal messaggio
+    // che l'handler stesso mostra a schermo.
+    const btnGenerate = document.getElementById("btnGenerate");
+    if (btnGenerate && typeof btnGenerate.onclick === "function") {
+      const originalOnClick = btnGenerate.onclick;
+      btnGenerate.onclick = async function (...args) {
+        const result = await originalOnClick.apply(this, args);
+        try {
+          const msgEl = document.getElementById("generateMsg");
+          if (msgEl && msgEl.classList.contains("ok")) saveCurrentProjectToHistory(undefined, false);
+        } catch (e) {}
+        return result;
+      };
+    }
+  } catch (e) {
+    // Lo storico progetti è un extra locale: se qualcosa va storto qui, il
+    // resto del sito continua a funzionare normalmente.
+  }
+})();
+</script>
+
+<!-- ============================================================
+     Account utente (accesso/registrazione) e backup dei progetti in cloud.
+     Aggiunge un pulsante nella barra in alto (accanto al cambio tema) con un
+     menu a tendina: form di accesso/registrazione se non si è connessi,
+     altrimenti email dell'account ed elenco progetti salvati sul server.
+     Riusa lo stesso formato di buildDraftSnapshot()/restoreDraft() già usato
+     dallo storico locale (vedi sopra), così un progetto aperto dal cloud
+     funziona esattamente come uno aperto dallo storico di questo browser —
+     e ogni volta che viene salvato un checkpoint locale, se si è connessi
+     viene sincronizzato anche sul server, così il lavoro non si perde anche
+     cambiando computer o svuotando la cache del browser.
+     ============================================================ -->
+<script>
+let estimaUtenteCorrente = null; // null = non connesso; altrimenti {id, email, nome, piano}
+
+async function estimaFetchJson(url, options) {
+  const res = await fetch(url, options);
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    const msg = (data && (data.error || (data.messages && data.messages[0]))) || `Errore (HTTP ${res.status})`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+async function estimaCaricaUtenteCorrente() {
+  try {
+    const data = await estimaFetchJson(`${API}/api/auth/utente`);
+    estimaUtenteCorrente = data.utente || null;
+  } catch (e) {
+    estimaUtenteCorrente = null;
+  }
+  estimaRenderAccountButton();
+}
+
+function estimaIniziali(utente) {
+  const base = (utente.nome && utente.nome.trim()) || utente.email || "?";
+  return base.trim().charAt(0).toUpperCase();
+}
+
+function estimaChiudiDropdown() {
+  const dd = document.getElementById("accountDropdown");
+  if (dd) dd.remove();
+}
+
+function estimaRenderAccountButton() {
+  const btn = document.getElementById("accountBtn");
+  if (!btn) return;
+  if (estimaUtenteCorrente) {
+    btn.innerHTML = `<span class="avatar">${estimaIniziali(estimaUtenteCorrente)}</span><span>${(estimaUtenteCorrente.nome || estimaUtenteCorrente.email).replace(/</g, "&lt;")}</span>`;
+  } else {
+    btn.innerHTML = "Accedi";
+  }
+}
+
+function estimaFormAccesso() {
+  return `
+    <div class="tabs">
+      <button type="button" data-tab="accedi" class="active">Accedi</button>
+      <button type="button" data-tab="registrati">Registrati</button>
+    </div>
+    <form id="formAuth" data-mode="accedi">
+      <label>Email</label>
+      <input type="email" id="authEmail" required autocomplete="email">
+      <label>Password</label>
+      <input type="password" id="authPassword" required autocomplete="current-password" minlength="8">
+      <div id="authNomeWrap" style="display:none">
+        <label>Nome (facoltativo)</label>
+        <input type="text" id="authNome" autocomplete="name">
+      </div>
+      <button type="submit">Accedi</button>
+      <div id="authMsg"></div>
+    </form>
+    <p style="margin:.7rem 0 0"><small class="hint">L'account serve a salvare in automatico una copia dei tuoi
+    progetti sul server (oltre allo storico già presente in questo browser), così non li perdi cambiando
+    dispositivo o svuotando la cache.</small></p>`;
+}
+
+function estimaContenutoAccountLoggato() {
+  const u = estimaUtenteCorrente;
+  return `
+    <h4>Il tuo account</h4>
+    <div class="account-info-email">${u.email.replace(/</g, "&lt;")}</div>
+    <div class="account-actions">
+      <button type="button" class="secondary" id="btnApriProgettiCloud">☁️ I miei progetti salvati</button>
+      <button type="button" class="secondary" id="btnEsciAccount">Esci</button>
+    </div>`;
+}
+
+function estimaApriDropdown() {
+  estimaChiudiDropdown();
+  const wrap = document.getElementById("accountBtnWrap");
+  const btn = document.getElementById("accountBtn");
+  if (!wrap || !btn) return;
+  const dd = document.createElement("div");
+  dd.id = "accountDropdown";
+  dd.className = "account-dropdown";
+  dd.innerHTML = estimaUtenteCorrente ? estimaContenutoAccountLoggato() : estimaFormAccesso();
+  // Agganciato al <body>, non a "wrap" (dentro #stepNav): vedi il commento
+  // sulla classe .account-dropdown nel CSS sul perché non può stare lì.
+  document.body.appendChild(dd);
+  const rect = btn.getBoundingClientRect();
+  dd.style.position = "fixed";
+  dd.style.top = (rect.bottom + 8) + "px";
+  dd.style.right = (window.innerWidth - rect.right) + "px";
+
+  if (!estimaUtenteCorrente) {
+    dd.querySelectorAll(".tabs button").forEach((tabBtn) => {
+      tabBtn.addEventListener("click", () => {
+        dd.querySelectorAll(".tabs button").forEach((b) => b.classList.remove("active"));
+        tabBtn.classList.add("active");
+        const mode = tabBtn.dataset.tab;
+        const form = document.getElementById("formAuth");
+        form.dataset.mode = mode;
+        document.getElementById("authNomeWrap").style.display = mode === "registrati" ? "block" : "none";
+        form.querySelector('button[type="submit"]').textContent = mode === "registrati" ? "Crea account" : "Accedi";
+        document.getElementById("authMsg").innerHTML = "";
+      });
+    });
+    const form = document.getElementById("formAuth");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msgEl = document.getElementById("authMsg");
+      msgEl.innerHTML = "";
+      const email = document.getElementById("authEmail").value.trim();
+      const password = document.getElementById("authPassword").value;
+      const nome = document.getElementById("authNome") ? document.getElementById("authNome").value.trim() : "";
+      const mode = form.dataset.mode;
+      const submitBtn = form.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      try {
+        const endpoint = mode === "registrati" ? "/api/auth/registrati" : "/api/auth/accedi";
+        const body = mode === "registrati" ? { email, password, nome } : { email, password };
+        const data = await estimaFetchJson(`${API}${endpoint}`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        });
+        estimaUtenteCorrente = data.utente;
+        estimaRenderAccountButton();
+        estimaChiudiDropdown();
+        await estimaSincronizzaStoricoLocaleConCloud();
+      } catch (err) {
+        msgEl.innerHTML = `<div class="msg-err">${String(err.message || err).replace(/</g, "&lt;")}</div>`;
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  } else {
+    const btnEsci = document.getElementById("btnEsciAccount");
+    if (btnEsci) btnEsci.addEventListener("click", async () => {
+      try { await estimaFetchJson(`${API}/api/auth/esci`, { method: "POST" }); } catch (e) {}
+      estimaUtenteCorrente = null;
+      estimaRenderAccountButton();
+      estimaChiudiDropdown();
+    });
+    const btnProgetti = document.getElementById("btnApriProgettiCloud");
+    if (btnProgetti) btnProgetti.addEventListener("click", () => {
+      estimaChiudiDropdown();
+      estimaApriPannelloProgettiCloud();
+    });
+  }
+
+  // Chiude il menu cliccando fuori (con un piccolo ritardo perché il click
+  // che lo ha aperto non lo richiuda subito).
+  setTimeout(() => {
+    document.addEventListener("click", function chiudiSeFuori(ev) {
+      if (!wrap.contains(ev.target) && !dd.contains(ev.target)) {
+        estimaChiudiDropdown();
+        document.removeEventListener("click", chiudiSeFuori);
+      }
+    });
+  }, 0);
+}
+
+// --- Sincronizzazione con lo storico locale già esistente (vedi blocco
+// precedente): ad ogni checkpoint salvato in locale, se l'utente è connesso,
+// lo stesso snapshot viene anche inviato al server (creato la prima volta,
+// aggiornato le volte successive tramite l'id cloud memorizzato sulla voce
+// locale). Fatto sempre in modo "silenzioso": un errore di rete qui non deve
+// mai interrompere il salvataggio locale, che resta comunque la fonte
+// primaria mentre si lavora. ---
+async function estimaSincronizzaVoceStorico(entry) {
+  if (!estimaUtenteCorrente || !entry) return;
+  try {
+    const payload = {
+      nome: entry.nome, committente: entry.committente || "", ubicazione: entry.ubicazione || "",
+      totale_testo: entry.totaleTesto || "", dati: entry.snapshot,
+    };
+    const endpoint = entry.cloudId ? `/api/progetti/${entry.cloudId}` : "/api/progetti";
+    const method = entry.cloudId ? "PUT" : "POST";
+    const data = await estimaFetchJson(`${API}${endpoint}`, {
+      method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    if (!entry.cloudId && data.progetto) {
+      // Ricorda l'id cloud sulla voce locale corrispondente, per aggiornarla
+      // (invece di duplicarla) alla prossima sincronizzazione.
+      const list = loadProjectHistory();
+      const idx = list.findIndex((e) => e.id === entry.id);
+      if (idx >= 0) {
+        list[idx].cloudId = data.progetto.id;
+        persistProjectHistory(list);
+      }
+    }
+  } catch (e) {
+    // Backup cloud fallito (rete assente, sessione scaduta...): lo storico
+    // locale resta comunque intatto, si riproverà al prossimo salvataggio.
+  }
+}
+
+async function estimaSincronizzaStoricoLocaleConCloud() {
+  if (!estimaUtenteCorrente) return;
+  const list = loadProjectHistory();
+  for (const entry of list) {
+    if (!entry.cloudId) await estimaSincronizzaVoceStorico(entry);
+  }
+}
+
+function estimaFmtDataOra(ts) {
+  try { return new Date(ts).toLocaleString("it-IT"); } catch (e) { return ""; }
+}
+
+async function estimaApriPannelloProgettiCloud() {
+  let panel = document.getElementById("progettiCloudPanel");
+  if (!panel) {
+    const anchor = document.getElementById("step0");
+    if (!anchor || !anchor.parentNode) return;
+    panel = document.createElement("details");
+    panel.id = "progettiCloudPanel";
+    panel.className = "note-box";
+    panel.style.marginBottom = "1.6rem";
+    panel.innerHTML =
+      '<summary>☁️ I tuoi progetti salvati in cloud</summary>' +
+      '<div id="progettiCloudList" style="margin-top:.8rem; display:flex; flex-direction:column; gap:.6rem;"></div>';
+    anchor.parentNode.insertBefore(panel, anchor);
+  }
+  panel.open = true;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  const listEl = document.getElementById("progettiCloudList");
+  listEl.innerHTML = '<p><small class="hint">Caricamento...</small></p>';
+  try {
+    const data = await estimaFetchJson(`${API}/api/progetti`);
+    const progetti = data.progetti || [];
+    if (!progetti.length) {
+      listEl.innerHTML = '<p><small class="hint">Nessun progetto salvato in cloud ancora: viene sincronizzato ' +
+        'automaticamente ogni checkpoint (salvataggio manuale o computo scaricato) da quando hai effettuato ' +
+        'l\'accesso.</small></p>';
+      return;
+    }
+    listEl.innerHTML = "";
+    progetti.forEach((p) => {
+      const row = document.createElement("div");
+      row.className = "history-row";
+      const metaParts = [p.committente, p.ubicazione, estimaFmtDataOra(p.aggiornato_il)].filter(Boolean);
+      let meta = metaParts.join(" · ").replace(/</g, "&lt;");
+      if (p.totale_testo) meta += (meta ? " · " : "") + "€ " + String(p.totale_testo).replace(/</g, "&lt;");
+      row.innerHTML =
+        '<div class="history-main">' +
+          '<div class="history-name">' + String(p.nome).replace(/</g, "&lt;") + '</div>' +
+          '<div class="history-meta">' + meta + '</div>' +
+        '</div>' +
+        '<div class="history-actions">' +
+          '<button type="button" class="secondary" data-action="apri">Apri</button>' +
+          '<button type="button" class="secondary" data-action="elimina">Elimina</button>' +
+        '</div>';
+      row.querySelector('[data-action="apri"]').addEventListener("click", async (ev) => {
+        if (!confirm(`Aprire "${p.nome}"? Il progetto attualmente aperto, se non salvato, verrà sostituito.`)) return;
+        const target = ev.currentTarget;
+        target.disabled = true;
+        target.textContent = "Apertura...";
+        try {
+          const full = await estimaFetchJson(`${API}/api/progetti/${p.id}`);
+          if (typeof restoreDraft === "function") await restoreDraft(full.progetto.dati);
+          panel.open = false;
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        } catch (err) {
+          alert("Errore nell'apertura del progetto: " + (err.message || err));
+        } finally {
+          target.disabled = false;
+          target.textContent = "Apri";
+        }
+      });
+      row.querySelector('[data-action="elimina"]').addEventListener("click", async () => {
+        if (!confirm(`Eliminare definitivamente "${p.nome}" dal cloud? Non si può annullare.`)) return;
+        try {
+          await estimaFetchJson(`${API}/api/progetti/${p.id}`, { method: "DELETE" });
+          estimaApriPannelloProgettiCloud();
+        } catch (err) {
+          alert("Errore nell'eliminazione: " + (err.message || err));
+        }
+      });
+      listEl.appendChild(row);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<p><small class="hint">Errore nel caricamento dei progetti: ${String(err.message || err).replace(/</g, "&lt;")}</small></p>`;
+  }
+}
+
+(function () {
+  try {
+    const nav = document.getElementById("stepNav");
+    if (!nav || document.getElementById("accountBtnWrap")) return;
+    const wrap = document.createElement("span");
+    wrap.id = "accountBtnWrap";
+    wrap.className = "step-nav-account-wrap";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = "accountBtn";
+    btn.className = "step-nav-account";
+    btn.textContent = "Accedi";
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (document.getElementById("accountDropdown")) { estimaChiudiDropdown(); return; }
+      estimaApriDropdown();
+    });
+    wrap.appendChild(btn);
+    nav.appendChild(wrap);
+
+    estimaCaricaUtenteCorrente().then(() => {
+      // Se l'utente risulta già connesso (sessione precedente) e c'è dello
+      // storico locale non ancora sincronizzato (es. salvato prima di aver
+      // fatto l'accesso, o offline), lo sincronizza in automatico ora.
+      estimaSincronizzaStoricoLocaleConCloud();
+    });
+
+    // Ogni volta che un checkpoint viene salvato nello storico locale (salvataggio
+    // manuale o automatico dopo un download), sincronizza anche sul cloud se si è
+    // connessi. Non modifica la funzione originale: la richiama e aggiunge la
+    // sincronizzazione solo dopo, stesso pattern già usato altrove in questo file.
+    if (typeof saveCurrentProjectToHistory === "function") {
+      const originaleSalvaStorico = saveCurrentProjectToHistory;
+      saveCurrentProjectToHistory = function (...args) {
+        const entry = originaleSalvaStorico.apply(this, args);
+        if (entry) estimaSincronizzaVoceStorico(entry);
+        return entry;
+      };
+    }
+  } catch (e) {
+    // L'account è un extra: se qualcosa va storto qui, il resto del sito
+    // (upload, calcolo, download...) continua a funzionare normalmente.
+  }
+})();
+</script>
+
+<!-- ============================================================
+     Consultazione del catalogo completo del prezzario ufficiale (35.063
+     voci): sola lettura, con ricerca lato server (/api/catalogo-prezzario).
+     Deliberatamente NON collegata al motore di calcolo del computo: l'utente
+     copia a mano codice/prezzo/descrizione nella tabella del computo se gli
+     serve una voce ufficiale specifica non coperta dal prezzario di
+     riferimento curato. Se la richiesta fallisce o il catalogo non è
+     disponibile su questa installazione, il pannello lo segnala chiaramente
+     ma il resto del sito (in particolare il calcolo del computo) non ne
+     risente in alcun modo.
+     ============================================================ -->
+<script>
+(function () {
+  try {
+    const input = document.getElementById("catalogoQuery");
+    const volSel = document.getElementById("catalogoVolume");
+    const resultsEl = document.getElementById("catalogoResults");
+    const msgEl = document.getElementById("catalogoMsg");
+    if (!input || !volSel || !resultsEl || !msgEl) return;
+
+    let debounceTimer = null;
+    let requestSeq = 0;
+
+    function escHtml(s) {
+      return String(s == null ? "" : s).replace(/</g, "&lt;");
+    }
+    function fmtPrezzoVirgola(p) {
+      return Number(p || 0).toFixed(2).replace(".", ",");
+    }
+
+    async function cercaCatalogo() {
+      const q = input.value.trim();
+      const vol = volSel.value;
+      if (!q && !vol) {
+        resultsEl.innerHTML = "";
+        msgEl.textContent = "";
+        msgEl.className = "msg";
+        return;
+      }
+      const mySeq = ++requestSeq;
+      msgEl.textContent = "Ricerca in corso...";
+      msgEl.className = "msg";
+      try {
+        const base = typeof API !== "undefined" ? API : "";
+        const params = new URLSearchParams({ q: q, vol: vol, limit: "40" });
+        const res = await fetch(`${base}/api/catalogo-prezzario?${params.toString()}`);
+        const data = await res.json();
+        if (mySeq !== requestSeq) return; // risposta di una ricerca ormai superata da una più recente
+        if (!res.ok) {
+          msgEl.textContent = "Errore durante la ricerca nel catalogo.";
+          msgEl.className = "msg err";
+          resultsEl.innerHTML = "";
+          return;
+        }
+        if (data.disponibile === false) {
+          msgEl.textContent = "Il catalogo completo non è disponibile su questa installazione.";
+          msgEl.className = "msg err";
+          resultsEl.innerHTML = "";
+          return;
+        }
+        const voci = data.voci || [];
+        if (!voci.length) {
+          msgEl.textContent = "Nessuna voce trovata con questi criteri.";
+          msgEl.className = "msg";
+          resultsEl.innerHTML = "";
+          return;
+        }
+        msgEl.textContent = `Trovate ${data.totale} voci` +
+          (data.totale > voci.length ? ` (mostrate le prime ${voci.length}: affina la ricerca per restringere)` : "") + ".";
+        msgEl.className = "msg ok";
+        resultsEl.innerHTML = "";
+        voci.forEach((v) => {
+          const row = document.createElement("div");
+          row.className = "history-row";
+          row.innerHTML =
+            '<div class="history-main">' +
+              '<div class="history-name">' + escHtml(v.codice) + " — € " + fmtPrezzoVirgola(v.prezzo) +
+                " / " + escHtml(v.unita_misura) +
+                (v.sotto_tipo ? ' <small class="hint">(' + escHtml(v.sotto_tipo) + ')</small>' : "") + '</div>' +
+              '<div class="history-meta">' + escHtml(v.descrizione) + '</div>' +
+            '</div>' +
+            '<div class="history-actions"><button type="button" class="secondary" data-action="copia">Copia</button></div>';
+          const btn = row.querySelector('[data-action="copia"]');
+          if (btn) btn.addEventListener("click", async () => {
+            const testo = `${v.codice}\t${v.descrizione}\t${v.unita_misura}\t${fmtPrezzoVirgola(v.prezzo)}`;
+            try {
+              await navigator.clipboard.writeText(testo);
+              const originale = btn.textContent;
+              btn.textContent = "Copiato!";
+              setTimeout(() => { btn.textContent = originale; }, 1500);
+            } catch (e) {
+              // Clipboard non disponibile (permessi negati, contesto non sicuro...):
+              // mostra comunque i dati così l'utente può copiarli a mano.
+              alert("Codice: " + v.codice + "\nPrezzo: € " + fmtPrezzoVirgola(v.prezzo) + " / " + v.unita_misura +
+                "\n\n" + v.descrizione);
+            }
+          });
+          resultsEl.appendChild(row);
+        });
+      } catch (e) {
+        if (mySeq !== requestSeq) return;
+        msgEl.textContent = "Errore di connessione durante la ricerca nel catalogo.";
+        msgEl.className = "msg err";
+      }
+    }
+
+    input.addEventListener("input", () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(cercaCatalogo, 350);
+    });
+    volSel.addEventListener("change", cercaCatalogo);
+  } catch (e) {
+    // Consultazione accessoria: se qualcosa va storto qui, il calcolo del
+    // computo e tutto il resto del sito non ne risentono in alcun modo.
+  }
+})();
+</script>
+</body>
+</html>

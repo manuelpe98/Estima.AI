@@ -24,13 +24,14 @@ from dataclasses import asdict
 from pathlib import Path
 
 import fitz
-from fastapi import FastAPI, UploadFile, File, Form, Body, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, Body, HTTPException, Request, Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 logger = logging.getLogger("computo")
 
@@ -41,6 +42,8 @@ from .pipeline import (
 )
 from .prezzario import db as prezzario_db
 from .prezzario import catalogo_data
+from .accounts import db as accounts_db
+from .accounts import auth as accounts_auth
 from .prezzario.seed_data import REFERENCE_CATEGORIA_SOTTOTIPO, VOCI_SEMPRE_TENTATE
 from .intake import required_documents, TIPI_INTERVENTO
 from .parametri_engine import PARAMETRI
@@ -56,6 +59,7 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 # senza persistenza, il database dei prezzari caricati e i job vengono persi a ogni riavvio.
 DATA_DIR = Path(os.environ.get("COMPUTO_DATA_DIR", BASE_DIR / "data"))
 DB_PATH = str(DATA_DIR / "prezzari" / "prezzari.db")
+ACCOUNTS_DB_PATH = str(DATA_DIR / "accounts" / "accounts.db")
 UPLOAD_DIR = DATA_DIR / "uploads"
 OUTPUT_DIR = DATA_DIR / "output"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -64,10 +68,33 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_BYTES = int(os.environ.get("COMPUTO_MAX_UPLOAD_MB", "500")) * 1024 * 1024
 
 app = FastAPI(title="Computo Metrico Automatico")
-# CORS permissivo perché in questa versione non ci sono ancora account utente:
-# da restringere alle origini reali quando si introduce l'autenticazione.
+# CORS resta permissivo (l'unico frontend che deve poter chiamare queste API è
+# servito dallo stesso servizio, stessa origine — vedi il mount dei file
+# statici più sotto): con allow_credentials non impostato (quindi False, il
+# default), il browser non allega comunque il cookie di sessione a nessuna
+# richiesta cross-origin, indipendentemente da questa configurazione — quindi
+# non serve restringere allow_origins solo per proteggere l'autenticazione.
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+)
+
+# Sessione utente (cookie firmato, per l'accesso con account — vedi più sotto
+# gli endpoint /api/auth/*): SESSION_SECRET va impostata come variabile
+# d'ambiente in produzione (stesso schema di BASIC_AUTH_USER/PASS più sotto),
+# altrimenti ne viene generata una nuova ad ogni riavvio del server e tutti
+# gli utenti risulterebbero disconnessi. Il cookie è httponly (non leggibile
+# da JavaScript) e "lax" (non inviato in richieste cross-site), max 30 giorni.
+SESSION_SECRET = os.environ.get("SESSION_SECRET")
+if not SESSION_SECRET:
+    SESSION_SECRET = secrets.token_hex(32)
+    logger.warning(
+        "SESSION_SECRET non impostata: generata una chiave temporanea, valida solo fino al prossimo "
+        "riavvio del server (tutti gli utenti connessi verranno disconnessi). Impostala come variabile "
+        "d'ambiente in produzione perché le sessioni restino valide tra un riavvio e l'altro."
+    )
+app.add_middleware(
+    SessionMiddleware, secret_key=SESSION_SECRET, session_cookie="estima_session",
+    max_age=60 * 60 * 24 * 30, same_site="lax",
 )
 
 
@@ -138,6 +165,144 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
 
 if BASIC_AUTH_USER and BASIC_AUTH_PASS:
     app.add_middleware(BasicAuthMiddleware)
+
+
+# --- Account utente: registrazione/accesso, e backup in cloud dei progetti --
+# Sistema volutamente minimale (email+password, nessuna verifica email, nessun
+# "password dimenticata" ancora): l'obiettivo di questa prima versione è avere
+# un account persistente per non perdere i progetti (finora salvati solo nel
+# browser, vedi lo storico locale più sotto in frontend/app.html) e una base
+# su cui costruire in futuro piani a pagamento/fatturazione (vedi il campo
+# 'piano' in accounts/db.py) — non è ancora un sistema pronto per un pubblico
+# ampio senza account già noti/fidati come Franco stesso.
+
+def _utente_sessione(request: Request) -> dict | None:
+    """Utente attualmente connesso (dalla sessione), o None se nessuno ha
+    fatto accesso. Non solleva mai eccezioni: usata dagli endpoint che
+    funzionano sia con che senza account (es. GET /api/auth/utente)."""
+    uid = request.session.get("uid")
+    if not uid:
+        return None
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    return accounts_db.get_user_by_id(conn, uid)
+
+
+def richiedi_utente(request: Request) -> dict:
+    """Come _utente_sessione, ma per gli endpoint che richiedono
+    OBBLIGATORIAMENTE un account connesso (i progetti in cloud): solleva 401
+    se nessuno ha fatto accesso, con un messaggio comprensibile a schermo."""
+    utente = _utente_sessione(request)
+    if not utente:
+        raise HTTPException(401, "Devi accedere al tuo account per usare questa funzione.")
+    return utente
+
+
+@app.post("/api/auth/registrati")
+async def api_auth_registrati(request: Request, payload: dict = Body(...)):
+    email = str(payload.get("email", "")).strip().lower()
+    password = str(payload.get("password", ""))
+    nome = str(payload.get("nome", "")).strip()
+
+    if not accounts_auth.is_valid_email(email):
+        raise HTTPException(400, "Indirizzo email non valido.")
+    errore_pwd = accounts_auth.password_valida(password)
+    if errore_pwd:
+        raise HTTPException(400, errore_pwd)
+
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    if accounts_db.get_user_by_email(conn, email):
+        raise HTTPException(400, "Esiste già un account con questa email: prova ad accedere invece di registrarti.")
+
+    utente = accounts_db.create_user(conn, email, accounts_auth.hash_password(password), nome)
+    request.session["uid"] = utente["id"]
+    return {"utente": accounts_db.utente_pubblico(utente)}
+
+
+@app.post("/api/auth/accedi")
+async def api_auth_accedi(request: Request, payload: dict = Body(...)):
+    email = str(payload.get("email", "")).strip().lower()
+    password = str(payload.get("password", ""))
+
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    utente = accounts_db.get_user_by_email(conn, email)
+    # Stesso messaggio sia per email inesistente sia per password sbagliata:
+    # non si deve poter scoprire se un'email è registrata o no provando ad
+    # accedere (pratica di sicurezza standard).
+    if not utente or not accounts_auth.verify_password(password, utente["password_hash"]):
+        raise HTTPException(401, "Email o password non corrette.")
+
+    request.session["uid"] = utente["id"]
+    return {"utente": accounts_db.utente_pubblico(utente)}
+
+
+@app.post("/api/auth/esci")
+async def api_auth_esci(request: Request):
+    request.session.clear()
+    return {"ok": True}
+
+
+@app.get("/api/auth/utente")
+async def api_auth_utente(request: Request):
+    utente = _utente_sessione(request)
+    return {"utente": accounts_db.utente_pubblico(utente) if utente else None}
+
+
+@app.get("/api/progetti")
+async def api_lista_progetti(utente: dict = Depends(richiedi_utente)):
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    return {"progetti": accounts_db.list_progetti(conn, utente["id"])}
+
+
+@app.post("/api/progetti")
+async def api_crea_progetto(payload: dict = Body(...), utente: dict = Depends(richiedi_utente)):
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    nome = str(payload.get("nome") or "Progetto senza nome").strip() or "Progetto senza nome"
+    dati = payload.get("dati")
+    if dati is None:
+        raise HTTPException(400, "Dati del progetto mancanti.")
+    progetto = accounts_db.create_progetto(
+        conn, utente["id"], nome,
+        str(payload.get("committente") or ""), str(payload.get("ubicazione") or ""),
+        str(payload.get("totale_testo") or ""), json.dumps(dati),
+    )
+    del progetto["dati_json"]  # non serve rispedirlo indietro, solo i metadati
+    return {"progetto": progetto}
+
+
+@app.put("/api/progetti/{progetto_id}")
+async def api_aggiorna_progetto(progetto_id: int, payload: dict = Body(...), utente: dict = Depends(richiedi_utente)):
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    nome = str(payload.get("nome") or "Progetto senza nome").strip() or "Progetto senza nome"
+    dati = payload.get("dati")
+    if dati is None:
+        raise HTTPException(400, "Dati del progetto mancanti.")
+    progetto = accounts_db.update_progetto(
+        conn, progetto_id, utente["id"], nome,
+        str(payload.get("committente") or ""), str(payload.get("ubicazione") or ""),
+        str(payload.get("totale_testo") or ""), json.dumps(dati),
+    )
+    if not progetto:
+        raise HTTPException(404, "Progetto non trovato (o non è tuo).")
+    del progetto["dati_json"]
+    return {"progetto": progetto}
+
+
+@app.get("/api/progetti/{progetto_id}")
+async def api_leggi_progetto(progetto_id: int, utente: dict = Depends(richiedi_utente)):
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    progetto = accounts_db.get_progetto(conn, progetto_id, utente["id"])
+    if not progetto:
+        raise HTTPException(404, "Progetto non trovato (o non è tuo).")
+    progetto["dati"] = json.loads(progetto.pop("dati_json"))
+    return {"progetto": progetto}
+
+
+@app.delete("/api/progetti/{progetto_id}")
+async def api_elimina_progetto(progetto_id: int, utente: dict = Depends(richiedi_utente)):
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    if not accounts_db.delete_progetto(conn, progetto_id, utente["id"]):
+        raise HTTPException(404, "Progetto non trovato (o non è tuo).")
+    return {"ok": True}
 
 
 def _save_upload(file: UploadFile) -> str:

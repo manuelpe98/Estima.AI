@@ -6,6 +6,7 @@ shapely
 openpyxl
 python-docx
 reportlab
+itsdangerous
 pydantic
 anthropic
 Pillow
