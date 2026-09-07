@@ -5,6 +5,7 @@ PyMuPDF
 shapely
 openpyxl
 python-docx
+reportlab
 pydantic
 anthropic
 Pillow

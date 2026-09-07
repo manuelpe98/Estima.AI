@@ -37,7 +37,7 @@ logger = logging.getLogger("computo")
 from .models import ProjectMeta, RoomQuantity, OpeningQuantity, TaggedElement, RoomComparison, ComputoVoce
 from .pipeline import (
     validate_only, questions_for_project, extract_quantities, build_from_quantities,
-    compute_voci, build_files_from_voci,
+    compute_voci, build_files_from_voci, build_single_file, FORMATI_SINGOLI,
 )
 from .prezzario import db as prezzario_db
 from .prezzario import catalogo_data
@@ -601,6 +601,29 @@ async def api_calcola_voci(
     }
 
 
+def _parse_generate_payload(
+    tipo_intervento: str, voci_json: str, confronto_json: str,
+    note_metodologiche_json: str, validation_messages_json: str,
+    nome_progetto: str, committente: str, ubicazione: str, prezzario_nome: str,
+):
+    """Validazione/parsing comune a /api/generate e /api/scarica-formato: dai
+    campi form ricevuti (voci del computo, eventualmente corrette a mano
+    dall'utente, e metadati di progetto) agli oggetti tipizzati pronti per i
+    generatori di output. Solleva HTTPException in caso di dati non validi."""
+    if tipo_intervento not in TIPI_INTERVENTO:
+        raise HTTPException(400, f"tipo_intervento deve essere uno tra {TIPI_INTERVENTO}")
+    try:
+        voci = [ComputoVoce(**v) for v in json.loads(voci_json)]
+        confronto = [RoomComparison(**c) for c in json.loads(confronto_json)]
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, f"Dati del computo non validi: {exc}")
+    note_metodologiche = json.loads(note_metodologiche_json)
+    validation_messages = json.loads(validation_messages_json)
+    meta = ProjectMeta(nome_progetto=nome_progetto, committente=committente, ubicazione=ubicazione,
+                        prezzario_nome=prezzario_nome, tipo_intervento=tipo_intervento)
+    return voci, confronto, note_metodologiche, validation_messages, meta
+
+
 @app.post("/api/generate")
 async def api_generate(
     tipo_intervento: str = Form(...),
@@ -614,37 +637,29 @@ async def api_generate(
     validation_messages_json: str = Form("[]"),
 ):
     """Terza fase: dalle righe di computo calcolate da /api/calcola-voci ed
-    EVENTUALMENTE corrette/commentate a mano dall'utente nel browser, ai file
-    finali (Excel, PriMus, Word). Non ricalcola nulla: usa esattamente le
-    righe ricevute, così le correzioni dell'utente sono quelle che finiscono
-    nei file scaricati."""
-    if tipo_intervento not in TIPI_INTERVENTO:
-        raise HTTPException(400, f"tipo_intervento deve essere uno tra {TIPI_INTERVENTO}")
-
-    try:
-        voci = [ComputoVoce(**v) for v in json.loads(voci_json)]
-        confronto = [RoomComparison(**c) for c in json.loads(confronto_json)]
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(400, f"Dati del computo non validi: {exc}")
-
+    EVENTUALMENTE corrette/commentate a mano dall'utente nel browser, al
+    pacchetto completo dei file finali (Excel, PriMus, Word, PDF) in un unico
+    zip. Non ricalcola nulla: usa esattamente le righe ricevute, così le
+    correzioni dell'utente sono quelle che finiscono nei file scaricati. Per
+    scaricare un solo formato alla volta, vedi /api/scarica-formato."""
+    voci, confronto, note_metodologiche, validation_messages, meta = _parse_generate_payload(
+        tipo_intervento, voci_json, confronto_json, note_metodologiche_json, validation_messages_json,
+        nome_progetto, committente, ubicazione, prezzario_nome,
+    )
     if not voci:
         return JSONResponse(status_code=422, content={
             "error": "Il computo non contiene nessuna voce da generare: torna al passaggio precedente."})
-
-    note_metodologiche = json.loads(note_metodologiche_json)
-    validation_messages = json.loads(validation_messages_json)
-    meta = ProjectMeta(nome_progetto=nome_progetto, committente=committente, ubicazione=ubicazione,
-                        prezzario_nome=prezzario_nome, tipo_intervento=tipo_intervento)
 
     job_id = uuid.uuid4().hex
     excel_out = str(OUTPUT_DIR / f"{job_id}_computo.xlsx")
     primus_out = str(OUTPUT_DIR / f"{job_id}_elenco_prezzi_primus.xlsx")
     word_out = str(OUTPUT_DIR / f"{job_id}_computo.docx")
+    pdf_out = str(OUTPUT_DIR / f"{job_id}_computo.pdf")
 
     build_files_from_voci(
         voci=voci, meta=meta, note_metodologiche=note_metodologiche,
         validation_messages=validation_messages, confronto=confronto,
-        excel_out=excel_out, primus_out=primus_out, word_out=word_out,
+        excel_out=excel_out, primus_out=primus_out, word_out=word_out, pdf_out=pdf_out,
     )
 
     zip_path = str(OUTPUT_DIR / f"{job_id}_computo.zip")
@@ -652,9 +667,50 @@ async def api_generate(
         zf.write(excel_out, arcname="computo_metrico.xlsx")
         zf.write(primus_out, arcname="elenco_prezzi_per_primus.xlsx")
         zf.write(word_out, arcname="relazione_computo.docx")
+        zf.write(pdf_out, arcname="computo_metrico.pdf")
 
     return FileResponse(zip_path, media_type="application/zip",
                          filename="computo_metrico_estimativo.zip")
+
+
+@app.post("/api/scarica-formato")
+async def api_scarica_formato(
+    formato: str = Form(...),
+    tipo_intervento: str = Form(...),
+    voci_json: str = Form(...),
+    nome_progetto: str = Form("Progetto senza nome"),
+    committente: str = Form(""),
+    ubicazione: str = Form(""),
+    prezzario_nome: str = Form("Prezzario Regione Lombardia 2022 (selezione di riferimento)"),
+    confronto_json: str = Form("[]"),
+    note_metodologiche_json: str = Form("[]"),
+    validation_messages_json: str = Form("[]"),
+):
+    """Come /api/generate, ma genera e restituisce UN SOLO file (formato:
+    'excel' | 'pdf' | 'primus' | 'word') invece dello zip completo — per i
+    pulsanti di download separati nel passaggio di revisione, così l'utente
+    scarica solo il formato che gli serve in quel momento."""
+    if formato not in FORMATI_SINGOLI:
+        raise HTTPException(400, f"formato deve essere uno tra {sorted(FORMATI_SINGOLI)}")
+
+    voci, confronto, note_metodologiche, validation_messages, meta = _parse_generate_payload(
+        tipo_intervento, voci_json, confronto_json, note_metodologiche_json, validation_messages_json,
+        nome_progetto, committente, ubicazione, prezzario_nome,
+    )
+    if not voci:
+        return JSONResponse(status_code=422, content={
+            "error": "Il computo non contiene nessuna voce da generare: torna al passaggio precedente."})
+
+    nome_file, media_type = FORMATI_SINGOLI[formato]
+    job_id = uuid.uuid4().hex
+    out_path = str(OUTPUT_DIR / f"{job_id}_{nome_file}")
+
+    build_single_file(
+        formato, voci=voci, meta=meta, note_metodologiche=note_metodologiche,
+        validation_messages=validation_messages, confronto=confronto, out_path=out_path,
+    )
+
+    return FileResponse(out_path, media_type=media_type, filename=nome_file)
 
 
 @app.post("/api/interpreta-commento")

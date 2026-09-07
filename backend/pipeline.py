@@ -35,6 +35,7 @@ from .prezzario import db as prezzario_db
 from .prezzario.matching import build_computo
 from .output.excel_generator import build_excel, build_primus_export
 from .output.word_generator import build_word
+from .output.pdf_generator import build_pdf
 
 
 def _resolve_scale(doc: "fitz.Document", page_number: int, declared_scale: int | None,
@@ -108,6 +109,7 @@ class PipelineResult:
     excel_path: str | None = None
     primus_path: str | None = None
     word_path: str | None = None
+    pdf_path: str | None = None
     totale: float = 0.0
 
 
@@ -448,15 +450,21 @@ def build_files_from_voci(
     excel_out: str,
     primus_out: str,
     word_out: str,
+    pdf_out: str | None = None,
 ) -> PipelineResult:
-    """Genera i file finali (Excel, PriMus, Word) direttamente da una lista di
-    righe di computo GIÀ CALCOLATA (da `compute_voci`, eventualmente corretta
-    a mano dall'utente nel passaggio di revisione — quantità, prezzi,
-    descrizioni, commenti): non ricalcola nulla dai vani/aperture originali,
-    così le correzioni dell'utente sono quelle che finiscono nei file."""
+    """Genera i file finali (Excel, PriMus, Word e, se richiesto, PDF)
+    direttamente da una lista di righe di computo GIÀ CALCOLATA (da
+    `compute_voci`, eventualmente corretta a mano dall'utente nel passaggio
+    di revisione — quantità, prezzi, descrizioni, commenti): non ricalcola
+    nulla dai vani/aperture originali, così le correzioni dell'utente sono
+    quelle che finiscono nei file. `pdf_out` è opzionale: usato dal download
+    "tutto in un pacchetto" (che include il PDF insieme agli altri formati),
+    non dal download del singolo formato PDF (vedi `build_single_file`)."""
     build_excel(voci, meta, excel_out, note_metodologiche=note_metodologiche)
     build_primus_export(voci, meta, primus_out)
     build_word(voci, meta, note_metodologiche, validation_messages, word_out, confronto=confronto)
+    if pdf_out:
+        build_pdf(voci, meta, pdf_out, note_metodologiche=note_metodologiche, confronto=confronto)
 
     result = PipelineResult()
     result.voci = voci
@@ -465,8 +473,47 @@ def build_files_from_voci(
     result.excel_path = excel_out
     result.primus_path = primus_out
     result.word_path = word_out
+    if pdf_out:
+        result.pdf_path = pdf_out
     result.totale = round(sum(v.importo for v in voci), 2)
     return result
+
+
+# Un solo formato per volta, per i pulsanti di download separati (Excel / PDF /
+# PriMus / Word) nel passaggio di revisione: l'utente può scaricare solo quello
+# che gli serve in quel momento, invece di dover sempre prendere lo zip completo.
+FORMATI_SINGOLI = {
+    "excel": ("computo_metrico.xlsx",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    "pdf": ("computo_metrico.pdf", "application/pdf"),
+    "primus": ("elenco_prezzi_per_primus.xlsx",
+               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    "word": ("relazione_computo.docx",
+             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+}
+
+
+def build_single_file(
+    formato: str,
+    voci: list,
+    meta: ProjectMeta,
+    note_metodologiche: list[str],
+    validation_messages: list[str],
+    confronto: list[RoomComparison],
+    out_path: str,
+) -> str:
+    """Genera UN SOLO file di output, nel formato richiesto (vedi
+    FORMATI_SINGOLI), dalla lista di voci già calcolata — stessa logica di
+    `build_files_from_voci`, ma senza generare gli altri formati inutilmente."""
+    if formato == "excel":
+        return build_excel(voci, meta, out_path, note_metodologiche=note_metodologiche)
+    if formato == "pdf":
+        return build_pdf(voci, meta, out_path, note_metodologiche=note_metodologiche, confronto=confronto)
+    if formato == "primus":
+        return build_primus_export(voci, meta, out_path)
+    if formato == "word":
+        return build_word(voci, meta, note_metodologiche, validation_messages, out_path, confronto=confronto)
+    raise ValueError(f"Formato non riconosciuto: {formato!r} (atteso uno tra {sorted(FORMATI_SINGOLI)})")
 
 
 def build_from_quantities(
