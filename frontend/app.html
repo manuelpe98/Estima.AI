@@ -206,6 +206,43 @@ try {
   .account-dropdown .account-plan { margin-top: .35rem; font-size: .8rem; color: var(--ink-soft); }
   .account-dropdown .account-plan strong { color: var(--ink); }
   .account-dropdown .account-actions { display: flex; flex-direction: column; gap: .4rem; margin-top: .8rem; }
+  .account-dropdown .account-actions button#btnCompraCrediti {
+    background: var(--accent); color: #fff6ec; border: 1px solid transparent;
+  }
+  .account-dropdown .account-actions button#btnCompraCrediti:disabled { opacity: .6; cursor: default; }
+  .account-dropdown .quota-bars { margin-top: .6rem; }
+  .account-dropdown .quota-bar-row { margin-bottom: .55rem; }
+  .account-dropdown .quota-bar-label {
+    display: flex; justify-content: space-between; font-size: .76rem; color: var(--ink-soft); margin-bottom: .25rem;
+  }
+  .account-dropdown .quota-bar-track {
+    width: 100%; height: 7px; background: var(--glass-bg-strong); border-radius: 999px; overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .account-dropdown .quota-bar-fill {
+    height: 100%; width: 0%; background: var(--accent); border-radius: 999px;
+    transition: width .3s ease, background-color .3s ease;
+  }
+  .account-dropdown .quota-bar-fill.quota-piena { background: var(--err-fg); }
+  .account-dropdown .plan-buttons { display: flex; flex-direction: column; gap: .4rem; }
+  .account-dropdown .plan-buttons button { text-align: left; }
+  .account-dropdown .plan-buttons .plan-price { float: right; color: var(--ink-soft); font-weight: 400; }
+  .account-dropdown #btnAnnullaAbbonamento {
+    width: 100%; margin-top: .5rem; background: transparent; border: 1px solid var(--err-fg); color: var(--err-fg);
+  }
+
+  /* Avviso dopo il ritorno dal pagamento Stripe (?acquisto=ok|annullato in
+     app.html, vedi estimaGestisciRitornoAcquisto): un piccolo banner in alto,
+     non un vero e proprio sistema di notifiche — questa è l'unica pagina che
+     ne ha bisogno per ora. */
+  .estima-toast {
+    position: fixed; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 80;
+    max-width: calc(100vw - 2rem); padding: .7rem 1.1rem; border-radius: var(--radius-m);
+    background: var(--paper); border: 1px solid var(--glass-border); box-shadow: var(--shadow-card);
+    font-size: .85rem; color: var(--ink);
+  }
+  .estima-toast.ok { border-color: var(--ok-fg); }
+  .estima-toast.err { border-color: var(--err-fg); }
 
   /* --- comparsa delle sezioni allo scroll --- */
   section.reveal-init { opacity: 0; transform: translateY(28px); transition: opacity .7s cubic-bezier(.2,.9,.25,1), transform .7s cubic-bezier(.2,.9,.25,1); }
@@ -2852,6 +2889,14 @@ function renderProjectHistoryPanel() {
      ============================================================ -->
 <script>
 let estimaUtenteCorrente = null; // null = non connesso; altrimenti {id, email, nome, piano}
+// Quale vista mostrare nel menu account quando non si è connessi: "accedi"
+// (le tab accedi/registrati, il comportamento di sempre), "richiedi-reset"
+// (form "password dimenticata") o "nuova-password" (form per scegliere la
+// nuova password, aperto automaticamente da un link di reset ricevuto via
+// email — vedi estimaGestisciResetPassword). estimaTokenResetCorrente porta
+// il token della URL fino al submit del form "nuova-password".
+let estimaVistaAuth = "accedi";
+let estimaTokenResetCorrente = null;
 
 async function estimaFetchJson(url, options) {
   const res = await fetch(url, options);
@@ -2909,13 +2954,61 @@ function estimaFormAccesso() {
         <label>Nome (facoltativo)</label>
         <input type="text" id="authNome" autocomplete="name">
       </div>
+      <p id="authConsensoWrap" style="margin:.6rem 0 0; display:none; font-size:.8rem; color:var(--ink-soft)">
+        <label style="display:flex; align-items:flex-start; gap:.5rem; font-size:inherit; color:inherit; margin:0">
+          <input type="checkbox" id="authConsenso" style="margin-top:.2rem">
+          <span>Ho letto e accetto i <a href="/termini-condizioni.html" target="_blank" rel="noopener">Termini e Condizioni</a>
+          e l'<a href="/informativa-privacy.html" target="_blank" rel="noopener">Informativa Privacy</a>.</span>
+        </label>
+      </p>
       <button type="submit">Accedi</button>
       <div id="authMsg"></div>
+      <p id="passwordDimenticataWrap" style="margin:.5rem 0 0">
+        <a href="#" id="linkPasswordDimenticata" class="hint">Password dimenticata?</a>
+      </p>
     </form>
     <p style="margin:.7rem 0 0"><small class="hint">L'account serve a salvare in automatico una copia dei tuoi
     progetti sul server (oltre allo storico già presente in questo browser), così non li perdi cambiando
-    dispositivo o svuotando la cache. Accesso gratuito in questa fase beta: in arrivo un piano a consumo o in
-    abbonamento.</small></p>`;
+    dispositivo o svuotando la cache, e ad acquistare crediti per le funzioni AI (analisi render, revisione del
+    computo) quando ti servono: il resto del sito resta comunque gratuito senza bisogno di
+    crediti. Consulta anche l'<a href="/informativa-privacy.html" target="_blank" rel="noopener">Informativa
+    Privacy</a> e i <a href="/termini-condizioni.html" target="_blank" rel="noopener">Termini e Condizioni</a>.</small></p>`;
+}
+
+function estimaFormRichiediReset() {
+  return `
+    <h4>Password dimenticata</h4>
+    <p class="hint" style="margin:0 0 .8rem">Inserisci l'email del tuo account: se corrisponde a un account
+    esistente, ti mandiamo un'email con le istruzioni per reimpostare la password.</p>
+    <form id="formRichiediReset">
+      <label>Email</label>
+      <input type="email" id="richiediResetEmail" required autocomplete="email">
+      <button type="submit">Invia email di reset</button>
+      <div id="richiediResetMsg"></div>
+    </form>
+    <p style="margin:.7rem 0 0"><a href="#" id="linkTornaAccedi" class="hint">← Torna all'accesso</a></p>`;
+}
+
+function estimaFormNuovaPassword() {
+  return `
+    <h4>Imposta una nuova password</h4>
+    <p class="hint" style="margin:0 0 .8rem">Scegli la nuova password per il tuo account.</p>
+    <form id="formNuovaPassword">
+      <label>Nuova password</label>
+      <input type="password" id="resetPassword1" required minlength="8" autocomplete="new-password">
+      <label>Conferma password</label>
+      <input type="password" id="resetPassword2" required minlength="8" autocomplete="new-password">
+      <button type="submit">Imposta nuova password</button>
+      <div id="resetMsg"></div>
+    </form>`;
+}
+
+// Sceglie quale delle tre viste "non connesso" mostrare nel menu account
+// (vedi estimaVistaAuth più sopra).
+function estimaContenutoNonLoggato() {
+  if (estimaVistaAuth === "richiedi-reset") return estimaFormRichiediReset();
+  if (estimaVistaAuth === "nuova-password") return estimaFormNuovaPassword();
+  return estimaFormAccesso();
 }
 
 // Riga "Piano" mostrata nel menu account: legge gli stessi campi già
@@ -2925,14 +3018,20 @@ function estimaFormAccesso() {
 // automaticamente crediti o abbonamento non appena quei campi verranno
 // valorizzati, senza bisogno di toccare di nuovo questo file.
 function estimaEtichettaPiano(u) {
+  if (u.abbonamento_stato === "attivo") {
+    const nomePiano = u.abbonamento_piano
+      ? u.abbonamento_piano.charAt(0).toUpperCase() + u.abbonamento_piano.slice(1)
+      : "";
+    const scad = u.abbonamento_rinnovo_il ? ` — rinnovo il ${estimaFmtDataOra(u.abbonamento_rinnovo_il).split(",")[0]}` : "";
+    return `Abbonamento: <strong>${nomePiano}</strong>${scad}`;
+  }
+  if (u.abbonamento_stato === "in_ritardo") {
+    return `Abbonamento: <strong>pagamento in ritardo</strong> <span class="hint">— verifica il metodo di pagamento</span>`;
+  }
   if (u.crediti_residui !== null && u.crediti_residui !== undefined) {
     return `Crediti residui: <strong>${u.crediti_residui}</strong>`;
   }
-  if (u.abbonamento_stato) {
-    const scad = u.abbonamento_rinnovo_il ? ` — rinnovo il ${estimaFmtDataOra(u.abbonamento_rinnovo_il).split(",")[0]}` : "";
-    return `Abbonamento: <strong>${u.abbonamento_stato}</strong>${scad}`;
-  }
-  return `Piano: <strong>Beta gratuita</strong> <span class="hint">— in arrivo crediti/abbonamento</span>`;
+  return `Piano: <strong>Beta gratuita</strong> <span class="hint">— attiva un abbonamento o acquista crediti</span>`;
 }
 
 function estimaContenutoAccountLoggato() {
@@ -2941,7 +3040,9 @@ function estimaContenutoAccountLoggato() {
     <h4>Il tuo account</h4>
     <div class="account-info-email">${u.email.replace(/</g, "&lt;")}</div>
     <div class="account-plan">${estimaEtichettaPiano(u)}</div>
+    <div id="abbonamentoWrap" class="quota-bars"><span class="hint">Caricamento abbonamento…</span></div>
     <div class="account-actions">
+      <button type="button" id="btnCompraCrediti">💳 Compra crediti</button>
       <button type="button" class="secondary" id="btnApriProgettiCloud">☁️ I miei progetti salvati</button>
       <button type="button" class="secondary" id="btnEsciAccount">Esci</button>
     </div>`;
@@ -2955,7 +3056,7 @@ function estimaApriDropdown() {
   const dd = document.createElement("div");
   dd.id = "accountDropdown";
   dd.className = "account-dropdown";
-  dd.innerHTML = estimaUtenteCorrente ? estimaContenutoAccountLoggato() : estimaFormAccesso();
+  dd.innerHTML = estimaUtenteCorrente ? estimaContenutoAccountLoggato() : estimaContenutoNonLoggato();
   // Agganciato al <body>, non a "wrap" (dentro #stepNav): vedi il commento
   // sulla classe .account-dropdown nel CSS sul perché non può stare lì.
   document.body.appendChild(dd);
@@ -2964,7 +3065,91 @@ function estimaApriDropdown() {
   dd.style.top = (rect.bottom + 8) + "px";
   dd.style.right = (window.innerWidth - rect.right) + "px";
 
-  if (!estimaUtenteCorrente) {
+  // Ridisegna SOLO il contenuto di "dd" (senza ricrearlo) e ricollega gli
+  // handler della vista "non connesso" attiva in quel momento: usata sia al
+  // primo apertura sia quando si passa da una vista all'altra (accedi <->
+  // password dimenticata). Fondamentale non richiamare estimaApriDropdown()
+  // per questi passaggi interni: ricreerebbe "dd" e registrerebbe un altro
+  // handler "chiudi cliccando fuori" (vedi sotto) senza rimuovere quello
+  // precedente, che restando agganciato al vecchio nodo ormai staccato dal
+  // DOM chiuderebbe il menu al primo click al suo interno.
+  function ridisegnaVistaNonLoggato() {
+    dd.innerHTML = estimaContenutoNonLoggato();
+    wireVistaNonLoggato();
+  }
+
+  function wireVistaNonLoggato() {
+    if (estimaVistaAuth === "richiedi-reset") {
+      const form = document.getElementById("formRichiediReset");
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const msgEl = document.getElementById("richiediResetMsg");
+        msgEl.innerHTML = "";
+        const email = document.getElementById("richiediResetEmail").value.trim();
+        const submitBtn = form.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        try {
+          const data = await estimaFetchJson(`${API}/api/auth/richiedi-reset`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }),
+          });
+          msgEl.innerHTML = `<div class="msg-ok">${String(data.messaggio || "").replace(/</g, "&lt;")}</div>`;
+          document.getElementById("richiediResetEmail").disabled = true;
+        } catch (err) {
+          msgEl.innerHTML = `<div class="msg-err">${String(err.message || err).replace(/</g, "&lt;")}</div>`;
+          submitBtn.disabled = false;
+        }
+      });
+      const linkTorna = document.getElementById("linkTornaAccedi");
+      if (linkTorna) linkTorna.addEventListener("click", (e) => {
+        e.preventDefault();
+        // stopPropagation ESSENZIALE: ridisegnaVistaNonLoggato() sotto
+        // sostituisce subito dd.innerHTML, quindi il nodo cliccato (e.target)
+        // smette di essere un discendente di "dd" ancora PRIMA che l'evento
+        // finisca di risalire fino al listener "chiudi cliccando fuori" su
+        // document (vedi più sotto) — che altrimenti, non trovandolo più
+        // dentro "dd", lo scambierebbe per un click fuori e chiuderebbe il
+        // menu invece di cambiare vista (bug riprodotto e corretto in fase
+        // di test).
+        e.stopPropagation();
+        estimaVistaAuth = "accedi";
+        ridisegnaVistaNonLoggato();
+      });
+      return;
+    }
+    if (estimaVistaAuth === "nuova-password") {
+      const form = document.getElementById("formNuovaPassword");
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const msgEl = document.getElementById("resetMsg");
+        msgEl.innerHTML = "";
+        const p1 = document.getElementById("resetPassword1").value;
+        const p2 = document.getElementById("resetPassword2").value;
+        if (p1 !== p2) {
+          msgEl.innerHTML = `<div class="msg-err">Le due password inserite non coincidono.</div>`;
+          return;
+        }
+        const submitBtn = form.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        try {
+          const data = await estimaFetchJson(`${API}/api/auth/reset-password`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: estimaTokenResetCorrente, password: p1 }),
+          });
+          estimaUtenteCorrente = data.utente;
+          estimaVistaAuth = "accedi";
+          estimaTokenResetCorrente = null;
+          estimaRenderAccountButton();
+          estimaChiudiDropdown();
+          estimaMostraToast("Password aggiornata: sei connesso con il tuo account.", "ok");
+        } catch (err) {
+          msgEl.innerHTML = `<div class="msg-err">${String(err.message || err).replace(/</g, "&lt;")}</div>`;
+          submitBtn.disabled = false;
+        }
+      });
+      return;
+    }
+    // Vista predefinita "accedi"/"registrati": comportamento invariato,
+    // con l'aggiunta del link "Password dimenticata?".
     dd.querySelectorAll(".tabs button").forEach((tabBtn) => {
       tabBtn.addEventListener("click", () => {
         dd.querySelectorAll(".tabs button").forEach((b) => b.classList.remove("active"));
@@ -2973,6 +3158,10 @@ function estimaApriDropdown() {
         const form = document.getElementById("formAuth");
         form.dataset.mode = mode;
         document.getElementById("authNomeWrap").style.display = mode === "registrati" ? "block" : "none";
+        const consensoWrap = document.getElementById("authConsensoWrap");
+        if (consensoWrap) consensoWrap.style.display = mode === "registrati" ? "block" : "none";
+        const linkWrap = document.getElementById("passwordDimenticataWrap");
+        if (linkWrap) linkWrap.style.display = mode === "registrati" ? "none" : "block";
         form.querySelector('button[type="submit"]').textContent = mode === "registrati" ? "Crea account" : "Accedi";
         document.getElementById("authMsg").innerHTML = "";
       });
@@ -2986,11 +3175,16 @@ function estimaApriDropdown() {
       const password = document.getElementById("authPassword").value;
       const nome = document.getElementById("authNome") ? document.getElementById("authNome").value.trim() : "";
       const mode = form.dataset.mode;
+      const consensoInput = document.getElementById("authConsenso");
+      if (mode === "registrati" && consensoInput && !consensoInput.checked) {
+        msgEl.innerHTML = `<div class="msg-err">Devi accettare Termini e Condizioni e Informativa Privacy per creare un account.</div>`;
+        return;
+      }
       const submitBtn = form.querySelector('button[type="submit"]');
       submitBtn.disabled = true;
       try {
         const endpoint = mode === "registrati" ? "/api/auth/registrati" : "/api/auth/accedi";
-        const body = mode === "registrati" ? { email, password, nome } : { email, password };
+        const body = mode === "registrati" ? { email, password, nome, consenso: true } : { email, password };
         const data = await estimaFetchJson(`${API}${endpoint}`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
         });
@@ -3004,6 +3198,102 @@ function estimaApriDropdown() {
         submitBtn.disabled = false;
       }
     });
+    const linkReset = document.getElementById("linkPasswordDimenticata");
+    if (linkReset) linkReset.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation(); // vedi il commento su stopPropagation in linkTornaAccedi più sopra
+      estimaVistaAuth = "richiedi-reset";
+      ridisegnaVistaNonLoggato();
+    });
+  }
+
+  // Carica lo stato dell'abbonamento (piani attivabili, oppure barre di
+  // utilizzo se già abbonato) DOPO che il menu è già visibile: i dati non
+  // sono inclusi in utente_pubblico() per restare leggero, quindi la vista
+  // parte con "Caricamento…" (vedi estimaContenutoAccountLoggato) e viene
+  // ridisegnata qui appena arriva la risposta. Ogni accesso a "abbonamentoWrap"
+  // ricontrolla che esista ancora nel DOM: l'utente potrebbe aver chiuso il
+  // menu prima che la richiesta finisse.
+  async function caricaAbbonamentoWrap() {
+    let dati;
+    try {
+      dati = await estimaFetchJson(`${API}/api/account/utilizzo`);
+    } catch (err) {
+      const w = document.getElementById("abbonamentoWrap");
+      if (w) w.innerHTML = `<span class="hint">Non è stato possibile caricare i dati dell'abbonamento.</span>`;
+      return;
+    }
+    const w = document.getElementById("abbonamentoWrap");
+    if (!w) return;
+
+    if (!dati.abbonamento_disponibile) {
+      w.innerHTML = "";
+      return;
+    }
+
+    if (dati.quota_abbonamento) {
+      const q = dati.quota_abbonamento;
+      const percSett = Math.min(100, Math.round((q.settimana.usati / q.settimana.limite) * 100));
+      const percOra = Math.min(100, Math.round((q.ora.usati / q.ora.limite) * 100));
+      w.innerHTML = `
+        <div class="quota-bar-row">
+          <div class="quota-bar-label"><span>Questa settimana</span><span>${q.settimana.usati}/${q.settimana.limite}</span></div>
+          <div class="quota-bar-track"><div class="quota-bar-fill${percSett >= 100 ? " quota-piena" : ""}" style="width:${percSett}%"></div></div>
+        </div>
+        <div class="quota-bar-row">
+          <div class="quota-bar-label"><span>Quest'ora</span><span>${q.ora.usati}/${q.ora.limite}</span></div>
+          <div class="quota-bar-track"><div class="quota-bar-fill${percOra >= 100 ? " quota-piena" : ""}" style="width:${percOra}%"></div></div>
+        </div>
+        <button type="button" class="secondary" id="btnAnnullaAbbonamento">Annulla abbonamento</button>`;
+      const btnAnnulla = document.getElementById("btnAnnullaAbbonamento");
+      if (btnAnnulla) btnAnnulla.addEventListener("click", async () => {
+        if (!confirm("Annullare l'abbonamento? Resta attivo fino al rinnovo, poi non verrà addebitato di nuovo.")) return;
+        btnAnnulla.disabled = true;
+        const testoOriginale = btnAnnulla.textContent;
+        btnAnnulla.textContent = "Annullamento…";
+        try {
+          const data = await estimaFetchJson(`${API}/api/abbonamento/annulla`, { method: "POST" });
+          estimaMostraToast(data.messaggio || "Abbonamento annullato.", "ok");
+        } catch (err) {
+          estimaMostraToast(String(err.message || err), "err");
+          btnAnnulla.disabled = false;
+          btnAnnulla.textContent = testoOriginale;
+        }
+      });
+    } else {
+      const piani = dati.piani_abbonamento || {};
+      const bottoni = Object.keys(piani).map((id) => {
+        const p = piani[id];
+        const prezzo = (p.prezzo_centesimi / 100).toFixed(2).replace(".", ",");
+        return `<button type="button" class="secondary btn-attiva-piano" data-piano="${id}">`
+          + `Attiva ${p.nome} <span class="plan-price">€${prezzo}/mese</span></button>`;
+      }).join("");
+      w.innerHTML = `<div class="plan-buttons">${bottoni}</div>`;
+      w.querySelectorAll(".btn-attiva-piano").forEach((b) => {
+        b.addEventListener("click", async () => {
+          const piano = b.dataset.piano;
+          const testoOriginale = b.innerHTML;
+          w.querySelectorAll(".btn-attiva-piano").forEach((x) => { x.disabled = true; });
+          b.innerHTML = "Apertura pagamento…";
+          try {
+            const data = await estimaFetchJson(`${API}/api/abbonamento/attiva`, {
+              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ piano }),
+            });
+            // Reindirizza alla pagina di pagamento OSPITATA DA STRIPE: nessun
+            // dato di pagamento passa mai da questa pagina.
+            window.location.href = data.checkout_url;
+          } catch (err) {
+            estimaMostraToast(String(err.message || err), "err");
+            w.querySelectorAll(".btn-attiva-piano").forEach((x) => { x.disabled = false; });
+            b.innerHTML = testoOriginale;
+          }
+        });
+      });
+    }
+  }
+
+  if (!estimaUtenteCorrente) {
+    wireVistaNonLoggato();
   } else {
     const btnEsci = document.getElementById("btnEsciAccount");
     if (btnEsci) btnEsci.addEventListener("click", async () => {
@@ -3017,6 +3307,23 @@ function estimaApriDropdown() {
       estimaChiudiDropdown();
       estimaApriPannelloProgettiCloud();
     });
+    const btnCrediti = document.getElementById("btnCompraCrediti");
+    if (btnCrediti) btnCrediti.addEventListener("click", async () => {
+      btnCrediti.disabled = true;
+      const testoOriginale = btnCrediti.textContent;
+      btnCrediti.textContent = "Apertura pagamento…";
+      try {
+        const data = await estimaFetchJson(`${API}/api/crediti/acquista`, { method: "POST" });
+        // Reindirizza alla pagina di pagamento OSPITATA DA STRIPE: nessun dato
+        // di pagamento passa mai da questa pagina.
+        window.location.href = data.checkout_url;
+      } catch (err) {
+        estimaMostraToast(String(err.message || err), "err");
+        btnCrediti.disabled = false;
+        btnCrediti.textContent = testoOriginale;
+      }
+    });
+    caricaAbbonamentoWrap();
   }
 
   // Chiude il menu cliccando fuori (con un piccolo ritardo perché il click
@@ -3072,6 +3379,79 @@ async function estimaSincronizzaStoricoLocaleConCloud() {
   for (const entry of list) {
     if (!entry.cloudId) await estimaSincronizzaVoceStorico(entry);
   }
+}
+
+// Piccolo avviso in alto, usato per ora solo dal ritorno dal pagamento
+// crediti (successo/annullo) e da un eventuale errore nell'apertura del
+// pagamento: non è un sistema di notifiche generale, solo il minimo che
+// serve qui. Si chiude da solo dopo qualche secondo o al click.
+function estimaMostraToast(testo, tipo) {
+  document.querySelectorAll(".estima-toast").forEach((el) => el.remove());
+  const el = document.createElement("div");
+  el.className = `estima-toast ${tipo === "ok" ? "ok" : "err"}`;
+  el.textContent = testo;
+  el.addEventListener("click", () => el.remove());
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 6000);
+}
+
+// Dopo il ritorno dalla pagina di pagamento Stripe, app.html?acquisto=ok o
+// ?acquisto=annullato (vedi success_url/cancel_url in /api/crediti/acquista
+// lato backend): mostra un avviso, ricarica il saldo crediti se il pagamento
+// è andato a buon fine (l'accredito vero avviene lato server tramite il
+// webhook Stripe, non qui — questo è solo un refresh dell'interfaccia) e
+// pulisce l'indirizzo per non rimostrare l'avviso a un successivo refresh.
+async function estimaGestisciRitornoAcquisto() {
+  const params = new URLSearchParams(window.location.search);
+  const esito = params.get("acquisto");
+  if (!esito) return;
+  if (esito === "ok") {
+    estimaMostraToast(
+      "Pagamento ricevuto: i crediti verranno accreditati a momenti (di norma pochi secondi).", "ok",
+    );
+    // Il webhook di Stripe può accreditare i crediti con un piccolo ritardo
+    // rispetto al reindirizzamento dell'utente: un secondo tentativo dopo
+    // qualche secondo copre il caso più comune senza dover ricaricare la
+    // pagina a mano.
+    await estimaCaricaUtenteCorrente();
+    setTimeout(estimaCaricaUtenteCorrente, 4000);
+  } else if (esito === "annullato") {
+    estimaMostraToast("Pagamento annullato: nessun addebito, nessun credito accreditato.", "err");
+  }
+  params.delete("acquisto");
+  const nuovaUrl = window.location.pathname + (params.toString() ? `?${params}` : "");
+  window.history.replaceState({}, "", nuovaUrl);
+}
+
+// Se l'indirizzo contiene ?reset=<token> (link ricevuto via email dopo aver
+// richiesto il recupero password, vedi /api/auth/richiedi-reset lato
+// backend), apre il menu account direttamente sulla vista "imposta nuova
+// password" invece del normale form di accesso. Non verifica il token qui:
+// lo fa il server al submit del form (vedi wireVistaNonLoggato in
+// estimaApriDropdown) — un token scaduto o già usato mostra semplicemente
+// l'errore restituito dal server in quel momento.
+function estimaGestisciResetPassword() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("reset");
+  // ?vista=richiedi-reset arriva dal link "Password dimenticata?" della
+  // home page (frontend/index.html), che non ha un proprio form di reset e
+  // rimanda qui: apre subito il form "richiedi il link di reset" invece del
+  // normale accesso.
+  const vista = params.get("vista");
+  if (!token && vista !== "richiedi-reset") return;
+
+  if (token) {
+    estimaTokenResetCorrente = token;
+    estimaVistaAuth = "nuova-password";
+  } else {
+    estimaVistaAuth = "richiedi-reset";
+  }
+  estimaApriDropdown();
+
+  params.delete("reset");
+  params.delete("vista");
+  const nuovaUrl = window.location.pathname + (params.toString() ? `?${params}` : "");
+  window.history.replaceState({}, "", nuovaUrl);
 }
 
 function estimaFmtDataOra(ts) {
@@ -3180,6 +3560,8 @@ async function estimaApriPannelloProgettiCloud() {
       // storico locale non ancora sincronizzato (es. salvato prima di aver
       // fatto l'accesso, o offline), lo sincronizza in automatico ora.
       estimaSincronizzaStoricoLocaleConCloud();
+      estimaGestisciRitornoAcquisto();
+      estimaGestisciResetPassword();
     });
 
     // Ogni volta che un checkpoint viene salvato nello storico locale (salvataggio
