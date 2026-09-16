@@ -390,8 +390,9 @@ try {
       <a href="/app.html" class="btn">Inizia un nuovo computo →</a>
       <a href="#" class="btn secondary" id="btnAccediHero">Accedi o crea un account</a>
     </div>
-    <p class="cta-note">Puoi iniziare subito senza registrarti. Accesso gratuito durante questa fase beta: in
-    arrivo un piano a consumo o in abbonamento — <a href="#piani">i dettagli qui sotto</a>.</p>
+    <p class="cta-note">Puoi iniziare subito senza registrarti: l'estrazione e la generazione del computo sono
+    sempre gratuite. Le funzioni AI opzionali richiedono un account con crediti —
+    <a href="#piani">i dettagli qui sotto</a>.</p>
 
     <a href="#comeFunziona" class="scroll-cue"><span class="dot">&#8595;</span> Scopri come funziona</a>
   </header>
@@ -484,29 +485,30 @@ try {
   <section class="block" id="piani">
     <div class="block-head">
       <p class="block-eyebrow">Piani</p>
-      <h2>Gratuito in fase beta, a pagamento in seguito</h2>
-      <p class="block-desc">Il modello definitivo — abbonamento mensile o crediti a consumo — è ancora in
-      valutazione: nel frattempo l'accesso resta gratuito per tutti gli account, senza sorprese quando il piano
-      sarà attivo.</p>
+      <h2>Sempre gratuito per l'estrazione, a crediti per l'AI</h2>
+      <p class="block-desc">L'estrazione di vani e aperture dai PDF e la generazione del computo in tutti i formati
+      restano gratuite per chiunque, senza account: non usano intelligenza artificiale. Le funzioni AI opzionali
+      (analisi visiva dei render, revisione assistita del computo) richiedono un account con crediti, acquistabili
+      in pacchetti quando servono.</p>
     </div>
     <div class="grid-4">
       <div class="card card-piano card-piano-attivo">
+        <span class="card-badge card-badge-attivo">Sempre gratuito</span>
+        <h3>Estrazione e generazione</h3>
+        <p>Estrazione da PDF, calcolo delle quantità, generazione del computo in tutti i formati e salvataggio dei
+        progetti in cloud — senza account e senza limiti d'uso.</p>
+      </div>
+      <div class="card card-piano card-piano-attivo">
         <span class="card-badge card-badge-attivo">Attivo ora</span>
-        <h3>Beta gratuita</h3>
-        <p>Accesso completo allo strumento — generazione del computo in tutti i formati e salvataggio dei progetti
-        in cloud incluso, senza limiti d'uso.</p>
+        <h3>Crediti per le funzioni AI</h3>
+        <p>Analisi visiva dei render e revisione assistita del computo: si attivano creando un account gratuito e
+        acquistando un pacchetto di crediti, da ricaricare quando servono.</p>
       </div>
       <div class="card card-piano">
         <span class="card-badge">In valutazione</span>
         <h3>Abbonamento mensile</h3>
-        <p>Canone ricorrente con una soglia di computi inclusi ogni mese, pensato per chi usa Estima con
-        regolarità.</p>
-      </div>
-      <div class="card card-piano">
-        <span class="card-badge">In valutazione</span>
-        <h3>Crediti a consumo</h3>
-        <p>Pacchetto di crediti scalati ad ogni computo generato, senza scadenza — pensato per un utilizzo più
-        occasionale.</p>
+        <p>Canone ricorrente con una soglia di utilizzo inclusa ogni mese, pensato per chi usa Estima con
+        regolarità — in alternativa ai crediti a consumo.</p>
       </div>
     </div>
   </section>
@@ -522,7 +524,9 @@ try {
 
   <footer class="landing-footer">
     <span class="foot-brand">Studio Pè <span>· Estima</span></span>
-    <span class="foot-meta">Carimate (CO) — <a class="foot-link" href="https://francope.com" target="_blank" rel="noopener">francope.com</a></span>
+    <span class="foot-meta">Carimate (CO) — <a class="foot-link" href="https://francope.com" target="_blank" rel="noopener">francope.com</a>
+    — <a class="foot-link" href="/informativa-privacy.html">Privacy</a>
+    — <a class="foot-link" href="/termini-condizioni.html">Termini e condizioni</a></span>
   </footer>
 </div>
 
@@ -594,12 +598,22 @@ function estimaFormAccesso(modeIniziale) {
         <label>Nome (facoltativo)</label>
         <input type="text" id="authNome" autocomplete="name">
       </div>
+      <p id="authConsensoWrap" style="margin:.6rem 0 0; display:${isRegistrati ? "block" : "none"}; font-size:.8rem; color:var(--ink-soft)">
+        <label style="display:flex; align-items:flex-start; gap:.5rem; font-size:inherit; color:inherit; margin:0">
+          <input type="checkbox" id="authConsenso" style="margin-top:.2rem">
+          <span>Ho letto e accetto i <a href="/termini-condizioni.html" target="_blank" rel="noopener">Termini e Condizioni</a>
+          e l'<a href="/informativa-privacy.html" target="_blank" rel="noopener">Informativa Privacy</a>.</span>
+        </label>
+      </p>
       <button type="submit">${isRegistrati ? "Crea account" : "Accedi"}</button>
       <div id="authMsg"></div>
+      <p id="passwordDimenticataWrap" style="margin:.5rem 0 0; display:${isRegistrati ? "none" : "block"}">
+        <a href="/app.html?vista=richiedi-reset" class="hint-small">Password dimenticata?</a>
+      </p>
     </form>
     <p class="hint-small">Dopo l'accesso vieni portato direttamente al tuo pannello di lavoro, dove ogni computo
-    salvato viene sincronizzato in automatico. Accesso gratuito in questa fase beta: in arrivo un piano a consumo
-    o in abbonamento.</p>`;
+    salvato viene sincronizzato in automatico e puoi acquistare crediti per le funzioni AI quando ti servono: il
+    resto del sito resta comunque gratuito e senza bisogno di crediti.</p>`;
 }
 
 // Stessa logica di frontend/app.html: legge i campi già restituiti da
@@ -651,6 +665,10 @@ function estimaApriDropdown(modeIniziale) {
         const form = document.getElementById("formAuth");
         form.dataset.mode = mode;
         document.getElementById("authNomeWrap").style.display = mode === "registrati" ? "block" : "none";
+        const consensoWrap = document.getElementById("authConsensoWrap");
+        if (consensoWrap) consensoWrap.style.display = mode === "registrati" ? "block" : "none";
+        const linkWrap = document.getElementById("passwordDimenticataWrap");
+        if (linkWrap) linkWrap.style.display = mode === "registrati" ? "none" : "block";
         form.querySelector('button[type="submit"]').textContent = mode === "registrati" ? "Crea account" : "Accedi";
         document.getElementById("authMsg").innerHTML = "";
       });
@@ -664,11 +682,16 @@ function estimaApriDropdown(modeIniziale) {
       const password = document.getElementById("authPassword").value;
       const nome = document.getElementById("authNome") ? document.getElementById("authNome").value.trim() : "";
       const mode = form.dataset.mode;
+      const consensoInput = document.getElementById("authConsenso");
+      if (mode === "registrati" && consensoInput && !consensoInput.checked) {
+        msgEl.innerHTML = `<div class="msg-err">Devi accettare Termini e Condizioni e Informativa Privacy per creare un account.</div>`;
+        return;
+      }
       const submitBtn = form.querySelector('button[type="submit"]');
       submitBtn.disabled = true;
       try {
         const endpoint = mode === "registrati" ? "/api/auth/registrati" : "/api/auth/accedi";
-        const body = mode === "registrati" ? { email, password, nome } : { email, password };
+        const body = mode === "registrati" ? { email, password, nome, consenso: true } : { email, password };
         await estimaFetchJson(`${API}${endpoint}`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
         });

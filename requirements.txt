@@ -10,3 +10,5 @@ itsdangerous
 pydantic
 anthropic
 Pillow
+stripe
+requests

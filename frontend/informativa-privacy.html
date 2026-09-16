@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Informativa sulla privacy di Estima — Studio Pè." />
+<title>Informativa Privacy — Estima · Studio Pè</title>
+<script>
+try {
+  var savedTheme = localStorage.getItem("estima-theme");
+  if (savedTheme === "dark") document.documentElement.setAttribute("data-theme", "dark");
+} catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     Token di base — identici a frontend/index.html e frontend/app.html
+     (stessa identità visiva su tutto il sito). Duplicati qui
+     deliberatamente: ogni pagina è un file HTML indipendente, senza
+     foglio di stile condiviso, coerentemente con il resto del sito.
+     ============================================================ */
+  :root {
+    --font-serif: 'Fraunces', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+    --font-head: 'Space Grotesk', 'Inter', sans-serif;
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --bg: #f2ebdc;
+    --paper: #fffcf6;
+    --glass-bg: rgba(255,252,246,0.88);
+    --glass-bg-strong: rgba(255,255,255,0.62);
+    --glass-border: rgba(74,54,30,0.16);
+    --ink: #2b2419;
+    --ink-soft: #7d715f;
+    --ink-faint: #9c9080;
+    --line: rgba(74,54,30,0.15);
+    --line-strong: rgba(74,54,30,0.28);
+    --accent: #b4703f;
+    --accent-soft-c: #c98a54;
+    --accent-dark: #8a5527;
+    --accent-soft: rgba(180,112,63,0.14);
+    --ok-fg: #4c6b34;
+    --radius-s: 8px;
+    --radius-m: 18px;
+    --radius-l: 28px;
+    --shadow-card: 0 24px 50px -28px rgba(74,54,30,0.30);
+  }
+  html[data-theme="dark"] {
+    --bg: #1d1a17;
+    --paper: #2a251f;
+    --glass-bg: rgba(35,30,25,0.88);
+    --glass-bg-strong: rgba(255,255,255,0.07);
+    --glass-border: rgba(238,228,211,0.14);
+    --ink: #f4ede1;
+    --ink-soft: #b7ab97;
+    --ink-faint: #8a8072;
+    --line: rgba(238,228,211,0.14);
+    --line-strong: rgba(238,228,211,0.26);
+    --accent: #c69566;
+    --accent-soft-c: #e3b98a;
+    --accent-dark: #8a5527;
+    --accent-soft: rgba(230,190,140,0.16);
+    --ok-fg: #9ecb7c;
+    --shadow-card: 0 24px 60px -24px rgba(0,0,0,0.6);
+  }
+  html[data-theme="dark"] .landing-nav { background: rgba(29,26,23,0.72); }
+  html[data-theme="dark"] .nav-theme .icon-moon { display: none; }
+  html[data-theme="dark"] .nav-theme .icon-sun { display: inline; }
+  .nav-theme .icon-sun { display: none; }
+
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); }
+  body {
+    font-family: var(--font-sans); margin: 0; color: var(--ink); line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 clamp(1.2rem, 4vw, 2.4rem); }
+
+  .landing-nav {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; align-items: center; gap: .8rem;
+    padding: .85rem clamp(1.2rem, 4vw, 2.4rem);
+    background: rgba(242,235,220,0.85);
+    border-bottom: 1px solid var(--glass-border);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+  }
+  .landing-nav .nav-brand {
+    font-family: var(--font-head); font-weight: 700; font-size: .82rem; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--ink); text-decoration: none; flex: none;
+    display: inline-flex; align-items: baseline; gap: .4rem;
+  }
+  .landing-nav .nav-brand span { color: var(--accent); }
+  .landing-nav .nav-fill { flex: 1; }
+  .nav-theme {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 2rem; height: 2rem; border-radius: 50%; cursor: pointer;
+    background: transparent; border: 1px solid var(--glass-border); color: var(--ink-soft);
+    font-size: .92rem; transition: border-color .2s ease, color .2s ease;
+  }
+  .nav-theme:hover { border-color: var(--accent); color: var(--accent); }
+  .nav-back {
+    flex: none; font-family: var(--font-head); font-size: .78rem; font-weight: 600;
+    color: var(--ink-soft); text-decoration: none; border: 1px solid var(--glass-border);
+    border-radius: 999px; padding: .4rem .9rem; transition: border-color .2s ease, color .2s ease;
+  }
+  .nav-back:hover { border-color: var(--accent); color: var(--accent); }
+
+  .legal-header { padding: 3.4rem 0 1.6rem; }
+  .legal-eyebrow {
+    font-family: var(--font-head); font-size: .72rem; font-weight: 600; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 .8rem;
+  }
+  .legal-header h1 {
+    font-family: var(--font-serif); font-weight: 600; font-size: clamp(1.9rem, 1.5rem + 1.6vw, 2.6rem);
+    letter-spacing: -0.01em; margin: 0 0 .7rem; color: var(--ink);
+  }
+  .legal-header .legal-meta { color: var(--ink-faint); font-size: .85rem; margin: 0; }
+
+  .legal-notice {
+    background: var(--glass-bg-strong); border: 1px solid var(--glass-border); border-radius: var(--radius-m);
+    padding: 1.1rem 1.3rem; margin: 1.6rem 0 2.6rem; font-size: .9rem; color: var(--ink-soft);
+  }
+  .legal-notice strong { color: var(--ink); }
+
+  .legal-body { padding-bottom: 4rem; }
+  .legal-body h2 {
+    font-family: var(--font-serif); font-weight: 500; font-size: 1.28rem;
+    letter-spacing: -0.005em; color: var(--ink); margin: 2.4rem 0 .8rem;
+  }
+  .legal-body h2:first-child { margin-top: 0; }
+  .legal-body p { margin: 0 0 1rem; color: var(--ink-soft); font-size: .98rem; }
+  .legal-body p strong { color: var(--ink); }
+  .legal-body a { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 2px; }
+  .legal-body .placeholder { color: var(--accent-dark); font-weight: 600; }
+
+  footer.landing-footer {
+    border-top: 1px solid var(--line); padding: 2.2rem 0 3rem; margin-top: 1rem;
+    display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between;
+  }
+  footer.landing-footer .foot-brand { font-family: var(--font-head); font-weight: 700; font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink); }
+  footer.landing-footer .foot-brand span { color: var(--accent); }
+  footer.landing-footer .foot-meta { color: var(--ink-faint); font-size: .82rem; }
+  footer.landing-footer a.foot-link { color: var(--ink-soft); text-decoration: none; border-bottom: 1px dotted var(--line-strong); }
+  footer.landing-footer a.foot-link:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<nav class="landing-nav">
+  <a href="/" class="nav-brand">Studio Pè <span>· Estima</span></a>
+  <span class="nav-fill"></span>
+  <span class="nav-theme" id="navThemeBtn" role="button" tabindex="0" title="Cambia tema chiaro/scuro">
+    <span class="icon-moon">&#127769;</span><span class="icon-sun">&#9728;&#65039;</span>
+  </span>
+  <a href="/" class="nav-back">← Torna al sito</a>
+</nav>
+
+<div class="wrap">
+  <header class="legal-header">
+    <p class="legal-eyebrow">Documento legale</p>
+    <h1>Informativa sulla Privacy</h1>
+    <p class="legal-meta">Ultimo aggiornamento: 15 settembre 2026 — relativa al sito e al servizio Estima, di Studio Pè</p>
+  </header>
+
+  <div class="legal-notice">
+    <strong>Nota:</strong> questo è un testo predisposto per Studio Pè con l'assistenza di un assistente AI, sulla
+    base delle informazioni disponibili sul funzionamento del servizio. Non sostituisce una consulenza legale: prima
+    di pubblicarlo si raccomanda una revisione da parte di un legale o di un consulente privacy, in particolare per i
+    punti segnalati come <span class="placeholder">[DA COMPLETARE]</span>.
+  </div>
+
+  <div class="legal-body">
+    <h2>1. Titolare del trattamento</h2>
+    <p>Il titolare del trattamento dei dati raccolti tramite il sito e il servizio Estima (di seguito, il
+    "Servizio") è Studio Pè, con sede in Carimate (CO), <span class="placeholder">[DA COMPLETARE: ragione sociale
+    completa, indirizzo della sede legale e Partita IVA]</span>. Per qualsiasi richiesta relativa al trattamento dei
+    dati personali è possibile scrivere a <a href="mailto:architettura@studiope.it">architettura@studiope.it</a>.</p>
+
+    <h2>2. Dati raccolti e finalità del trattamento</h2>
+    <p>Utilizzando le funzionalità di base del Servizio (generazione del computo metrico a partire dagli elaborati
+    caricati) senza creare un account, non viene raccolto alcun dato personale identificativo: i file caricati
+    vengono elaborati per produrre il risultato richiesto e non sono collegati a un'identità.</p>
+    <p>Creando un account per acquistare crediti e utilizzare le funzionalità basate su intelligenza artificiale
+    (analisi dei render, revisione assistita del computo) vengono raccolti: l'indirizzo email, la password (mai
+    conservata in chiaro, ma solo in forma crittograficamente protetta), il nome facoltativamente indicato in fase
+    di registrazione, lo storico dei progetti e degli elaborati caricati e salvati sul proprio account, i dati
+    relativi agli acquisti di crediti (gestiti direttamente da Stripe, come indicato al punto 4) e alcuni dati
+    tecnici di utilizzo (indirizzo IP, data e ora delle richieste) impiegati esclusivamente per prevenire abusi del
+    Servizio, ad esempio richieste ripetute e automatizzate.</p>
+    <p>Questi dati sono trattati per erogare il Servizio richiesto, gestire l'account e gli acquisti di crediti,
+    rispondere a richieste di assistenza, e per finalità di sicurezza e prevenzione di usi impropri o fraudolenti del
+    Servizio.</p>
+
+    <h2>3. Base giuridica del trattamento</h2>
+    <p>Il trattamento dei dati necessari per creare l'account, erogare il Servizio ed elaborare gli acquisti di
+    crediti si fonda sull'esecuzione di un contratto di cui l'utente è parte (art. 6, par. 1, lett. b, GDPR). Il
+    trattamento dei dati tecnici di utilizzo a fini antifrode e di sicurezza si fonda sul legittimo interesse del
+    titolare (art. 6, par. 1, lett. f, GDPR) a garantire il corretto funzionamento del Servizio.</p>
+
+    <h2>4. Destinatari e sub-responsabili del trattamento</h2>
+    <p>Per erogare il Servizio, alcuni dati vengono comunicati a fornitori terzi che agiscono come responsabili
+    (sub-responsabili) del trattamento o come titolari autonomi per le rispettive finalità: Anthropic PBC, che
+    elabora i contenuti caricati quando si utilizzano le funzionalità basate su intelligenza artificiale
+    espressamente richieste dall'utente; Stripe, Inc., che gestisce l'acquisto dei pacchetti di crediti e i relativi
+    dati di pagamento, che non transitano né vengono conservati dal titolare; Resend, per l'invio delle email
+    transazionali del Servizio (ad esempio il recupero della password); il fornitore di hosting su cui gira il
+    Servizio <span class="placeholder">[DA COMPLETARE: nome del fornitore di hosting, es. Render]</span>. Nessuno di
+    questi dati viene ceduto a terzi per finalità di marketing.</p>
+
+    <h2>5. Trasferimento dei dati verso paesi extra-UE</h2>
+    <p>Alcuni dei fornitori indicati al punto precedente (in particolare Anthropic, Stripe e Resend) hanno sede o
+    possono trattare dati anche negli Stati Uniti. In questi casi il trasferimento avviene sulla base delle garanzie
+    previste dal GDPR per i trasferimenti extra-UE, in particolare le Clausole Contrattuali Standard approvate dalla
+    Commissione Europea, come indicato nella rispettiva documentazione sulla privacy di ciascun fornitore.</p>
+
+    <h2>6. Periodo di conservazione</h2>
+    <p>I dati dell'account e i progetti salvati vengono conservati per tutta la durata di esistenza dell'account
+    stesso, e comunque non oltre quanto necessario per le finalità per cui sono stati raccolti. I dati relativi a
+    pagamenti ed eventuali fatture vengono conservati per il periodo previsto dalla normativa fiscale e contabile
+    applicabile. In caso di richiesta di cancellazione dell'account, i dati vengono cancellati salvo quanto occorra
+    conservare per obblighi di legge (ad esempio documentazione fiscale).</p>
+
+    <h2>7. Cookie</h2>
+    <p>Il sito utilizza esclusivamente un cookie tecnico necessario a mantenere la sessione di accesso una volta
+    effettuato il login (indispensabile al funzionamento dell'area account) e un dato salvato localmente nel browser
+    per ricordare la preferenza di tema chiaro/scuro. Il sito non utilizza cookie di profilazione, cookie di terze
+    parti a fini pubblicitari, né strumenti di analisi statistica o tracciamento del comportamento di navigazione.</p>
+
+    <h2>8. Diritti dell'interessato</h2>
+    <p>In qualità di interessato, è possibile in qualsiasi momento richiedere l'accesso ai propri dati personali,
+    la rettifica o l'integrazione di dati inesatti o incompleti, la cancellazione dei propri dati (diritto
+    all'oblio), la limitazione del trattamento, la portabilità dei dati in un formato strutturato, e opporsi al
+    trattamento fondato sul legittimo interesse del titolare. Al momento queste richieste vanno indirizzate via email
+    a <a href="mailto:architettura@studiope.it">architettura@studiope.it</a>: il Servizio non dispone ancora di una
+    funzione di cancellazione automatica dell'account, pertanto la richiesta verrà gestita ed evasa manualmente entro
+    tempi ragionevoli. Resta inoltre sempre possibile proporre reclamo al Garante per la Protezione dei Dati
+    Personali (www.garanteprivacy.it) qualora si ritenga che il trattamento violi la normativa vigente.</p>
+
+    <h2>9. Modifiche alla presente informativa</h2>
+    <p>La presente informativa può essere aggiornata nel tempo, ad esempio a seguito di modifiche al Servizio o
+    all'elenco dei fornitori terzi coinvolti. La data di ultimo aggiornamento è indicata in cima al documento; in
+    caso di modifiche sostanziali, verrà data comunicazione agli utenti registrati tramite email o tramite avviso sul
+    sito.</p>
+
+    <h2>10. Contatti</h2>
+    <p>Per qualsiasi domanda relativa alla presente informativa o al trattamento dei propri dati personali, è
+    possibile scrivere a <a href="mailto:architettura@studiope.it">architettura@studiope.it</a>.</p>
+  </div>
+
+  <footer class="landing-footer">
+    <span class="foot-brand">Studio Pè <span>· Estima</span></span>
+    <span class="foot-meta">Carimate (CO) — <a class="foot-link" href="https://francope.com" target="_blank" rel="noopener">francope.com</a></span>
+  </footer>
+</div>
+
+<script>
+function estimaSetTheme(dark) {
+  try {
+    if (dark) document.documentElement.setAttribute("data-theme", "dark");
+    else document.documentElement.removeAttribute("data-theme");
+    localStorage.setItem("estima-theme", dark ? "dark" : "light");
+  } catch (e) {}
+}
+function estimaToggleTheme() {
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  estimaSetTheme(!isDark);
+}
+const navThemeBtn = document.getElementById("navThemeBtn");
+navThemeBtn.addEventListener("click", estimaToggleTheme);
+navThemeBtn.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); estimaToggleTheme(); }
+});
+</script>
+</body>
+</html>

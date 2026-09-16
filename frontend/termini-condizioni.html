@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Termini e condizioni di utilizzo di Estima — Studio Pè." />
+<title>Termini e Condizioni — Estima · Studio Pè</title>
+<script>
+try {
+  var savedTheme = localStorage.getItem("estima-theme");
+  if (savedTheme === "dark") document.documentElement.setAttribute("data-theme", "dark");
+} catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     Token di base — identici a frontend/index.html, frontend/app.html
+     e frontend/informativa-privacy.html (stessa identità visiva su
+     tutto il sito). Duplicati qui deliberatamente, come nelle altre
+     pagine indipendenti del sito.
+     ============================================================ */
+  :root {
+    --font-serif: 'Fraunces', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+    --font-head: 'Space Grotesk', 'Inter', sans-serif;
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --bg: #f2ebdc;
+    --paper: #fffcf6;
+    --glass-bg: rgba(255,252,246,0.88);
+    --glass-bg-strong: rgba(255,255,255,0.62);
+    --glass-border: rgba(74,54,30,0.16);
+    --ink: #2b2419;
+    --ink-soft: #7d715f;
+    --ink-faint: #9c9080;
+    --line: rgba(74,54,30,0.15);
+    --line-strong: rgba(74,54,30,0.28);
+    --accent: #b4703f;
+    --accent-soft-c: #c98a54;
+    --accent-dark: #8a5527;
+    --accent-soft: rgba(180,112,63,0.14);
+    --ok-fg: #4c6b34;
+    --radius-s: 8px;
+    --radius-m: 18px;
+    --radius-l: 28px;
+    --shadow-card: 0 24px 50px -28px rgba(74,54,30,0.30);
+  }
+  html[data-theme="dark"] {
+    --bg: #1d1a17;
+    --paper: #2a251f;
+    --glass-bg: rgba(35,30,25,0.88);
+    --glass-bg-strong: rgba(255,255,255,0.07);
+    --glass-border: rgba(238,228,211,0.14);
+    --ink: #f4ede1;
+    --ink-soft: #b7ab97;
+    --ink-faint: #8a8072;
+    --line: rgba(238,228,211,0.14);
+    --line-strong: rgba(238,228,211,0.26);
+    --accent: #c69566;
+    --accent-soft-c: #e3b98a;
+    --accent-dark: #8a5527;
+    --accent-soft: rgba(230,190,140,0.16);
+    --ok-fg: #9ecb7c;
+    --shadow-card: 0 24px 60px -24px rgba(0,0,0,0.6);
+  }
+  html[data-theme="dark"] .landing-nav { background: rgba(29,26,23,0.72); }
+  html[data-theme="dark"] .nav-theme .icon-moon { display: none; }
+  html[data-theme="dark"] .nav-theme .icon-sun { display: inline; }
+  .nav-theme .icon-sun { display: none; }
+
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); }
+  body {
+    font-family: var(--font-sans); margin: 0; color: var(--ink); line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 clamp(1.2rem, 4vw, 2.4rem); }
+
+  .landing-nav {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; align-items: center; gap: .8rem;
+    padding: .85rem clamp(1.2rem, 4vw, 2.4rem);
+    background: rgba(242,235,220,0.85);
+    border-bottom: 1px solid var(--glass-border);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+  }
+  .landing-nav .nav-brand {
+    font-family: var(--font-head); font-weight: 700; font-size: .82rem; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--ink); text-decoration: none; flex: none;
+    display: inline-flex; align-items: baseline; gap: .4rem;
+  }
+  .landing-nav .nav-brand span { color: var(--accent); }
+  .landing-nav .nav-fill { flex: 1; }
+  .nav-theme {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 2rem; height: 2rem; border-radius: 50%; cursor: pointer;
+    background: transparent; border: 1px solid var(--glass-border); color: var(--ink-soft);
+    font-size: .92rem; transition: border-color .2s ease, color .2s ease;
+  }
+  .nav-theme:hover { border-color: var(--accent); color: var(--accent); }
+  .nav-back {
+    flex: none; font-family: var(--font-head); font-size: .78rem; font-weight: 600;
+    color: var(--ink-soft); text-decoration: none; border: 1px solid var(--glass-border);
+    border-radius: 999px; padding: .4rem .9rem; transition: border-color .2s ease, color .2s ease;
+  }
+  .nav-back:hover { border-color: var(--accent); color: var(--accent); }
+
+  .legal-header { padding: 3.4rem 0 1.6rem; }
+  .legal-eyebrow {
+    font-family: var(--font-head); font-size: .72rem; font-weight: 600; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 .8rem;
+  }
+  .legal-header h1 {
+    font-family: var(--font-serif); font-weight: 600; font-size: clamp(1.9rem, 1.5rem + 1.6vw, 2.6rem);
+    letter-spacing: -0.01em; margin: 0 0 .7rem; color: var(--ink);
+  }
+  .legal-header .legal-meta { color: var(--ink-faint); font-size: .85rem; margin: 0; }
+
+  .legal-notice {
+    background: var(--glass-bg-strong); border: 1px solid var(--glass-border); border-radius: var(--radius-m);
+    padding: 1.1rem 1.3rem; margin: 1.6rem 0 2.6rem; font-size: .9rem; color: var(--ink-soft);
+  }
+  .legal-notice strong { color: var(--ink); }
+
+  .legal-body { padding-bottom: 4rem; }
+  .legal-body h2 {
+    font-family: var(--font-serif); font-weight: 500; font-size: 1.28rem;
+    letter-spacing: -0.005em; color: var(--ink); margin: 2.4rem 0 .8rem;
+  }
+  .legal-body h2:first-child { margin-top: 0; }
+  .legal-body p { margin: 0 0 1rem; color: var(--ink-soft); font-size: .98rem; }
+  .legal-body p strong { color: var(--ink); }
+  .legal-body a { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 2px; }
+  .legal-body .placeholder { color: var(--accent-dark); font-weight: 600; }
+
+  footer.landing-footer {
+    border-top: 1px solid var(--line); padding: 2.2rem 0 3rem; margin-top: 1rem;
+    display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between;
+  }
+  footer.landing-footer .foot-brand { font-family: var(--font-head); font-weight: 700; font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink); }
+  footer.landing-footer .foot-brand span { color: var(--accent); }
+  footer.landing-footer .foot-meta { color: var(--ink-faint); font-size: .82rem; }
+  footer.landing-footer a.foot-link { color: var(--ink-soft); text-decoration: none; border-bottom: 1px dotted var(--line-strong); }
+  footer.landing-footer a.foot-link:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<nav class="landing-nav">
+  <a href="/" class="nav-brand">Studio Pè <span>· Estima</span></a>
+  <span class="nav-fill"></span>
+  <span class="nav-theme" id="navThemeBtn" role="button" tabindex="0" title="Cambia tema chiaro/scuro">
+    <span class="icon-moon">&#127769;</span><span class="icon-sun">&#9728;&#65039;</span>
+  </span>
+  <a href="/" class="nav-back">← Torna al sito</a>
+</nav>
+
+<div class="wrap">
+  <header class="legal-header">
+    <p class="legal-eyebrow">Documento legale</p>
+    <h1>Termini e Condizioni di Utilizzo</h1>
+    <p class="legal-meta">Ultimo aggiornamento: 15 settembre 2026 — relativi al sito e al servizio Estima, di Studio Pè</p>
+  </header>
+
+  <div class="legal-notice">
+    <strong>Nota:</strong> questo è un testo predisposto per Studio Pè con l'assistenza di un assistente AI, sulla
+    base delle informazioni disponibili sul funzionamento del servizio. Non sostituisce una consulenza legale: prima
+    di pubblicarlo si raccomanda una revisione da parte di un legale o di un consulente (anche per gli aspetti
+    fiscali legati alla vendita dei crediti, ad esempio l'eventuale obbligo di fatturazione elettronica), in
+    particolare per i punti segnalati come <span class="placeholder">[DA COMPLETARE]</span>.
+  </div>
+
+  <div class="legal-body">
+    <h2>1. Oggetto e accettazione</h2>
+    <p>I presenti termini e condizioni disciplinano l'utilizzo del sito e del servizio Estima (di seguito, il
+    "Servizio"), fornito da Studio Pè, con sede in Carimate (CO), <span class="placeholder">[DA COMPLETARE: ragione
+    sociale completa e Partita IVA]</span>. Utilizzando il Servizio, in particolare creando un account, l'utente
+    dichiara di aver letto, compreso e accettato integralmente i presenti termini, oltre all'Informativa sulla
+    Privacy consultabile separatamente.</p>
+
+    <h2>2. Descrizione del servizio</h2>
+    <p>Estima è uno strumento che genera un computo metrico estimativo a partire dagli elaborati architettonici
+    caricati dall'utente, con l'obiettivo di fornire una stima di supporto al lavoro professionale. Le funzionalità
+    di base del Servizio sono utilizzabili gratuitamente e senza necessità di registrazione. Alcune funzionalità
+    aggiuntive basate su intelligenza artificiale (ad esempio l'analisi di render e la revisione assistita del
+    computo) richiedono la creazione di un account e l'acquisto di crediti, come descritto al punto 4.</p>
+    <p>Il computo generato, incluse le eventuali analisi svolte tramite le funzionalità di intelligenza artificiale,
+    costituisce uno strumento di supporto e non sostituisce in alcun modo la verifica, il giudizio e la
+    responsabilità professionale del tecnico incaricato, che resta l'unico responsabile della correttezza e
+    completezza degli elaborati e delle stime prodotte a partire dal risultato del Servizio.</p>
+
+    <h2>3. Registrazione e account</h2>
+    <p>Per creare un account è necessario fornire un indirizzo email valido e una password. L'utente è responsabile
+    della riservatezza delle proprie credenziali di accesso e di ogni attività svolta tramite il proprio account.
+    In caso di sospetto utilizzo non autorizzato dell'account, l'utente è tenuto a comunicarlo tempestivamente a
+    <a href="mailto:architettura@studiope.it">architettura@studiope.it</a>.</p>
+
+    <h2>4. Sistema di crediti e acquisti</h2>
+    <p>Le funzionalità basate su intelligenza artificiale sono accessibili tramite un sistema di crediti prepagati,
+    acquistabili in pacchetti tramite Stripe, ai prezzi indicati sul sito al momento dell'acquisto. Ogni utilizzo
+    delle funzionalità AI comporta lo scalo di un numero di crediti proporzionale alla funzione richiesta, come
+    indicato nell'interfaccia del Servizio. I crediti acquistati sono associati all'account dell'utente e non sono
+    né cedibili né trasferibili ad altri account. Salvo quanto previsto dalla legge applicabile in materia di diritto
+    di recesso (vedi punto 5), i crediti acquistati non sono rimborsabili.</p>
+
+    <h2>5. Diritto di recesso</h2>
+    <p>Ai sensi dell'art. 59, lettera o), del Codice del Consumo (D.Lgs. 206/2005), il diritto di recesso previsto
+    per i contratti a distanza conclusi con i consumatori non si applica alla fornitura di contenuti digitali non
+    forniti su supporto materiale, quando l'esecuzione è già iniziata con il consenso espresso del consumatore e con
+    la sua accettazione della perdita del diritto di recesso. Procedendo all'acquisto di un pacchetto di crediti,
+    l'utente richiede espressamente che l'esecuzione del Servizio abbia inizio immediatamente (i crediti sono resi
+    disponibili sull'account non appena il pagamento è confermato) e dichiara di essere consapevole che, in tal
+    modo, perde il diritto di recesso di cui avrebbe altrimenti beneficiato.</p>
+
+    <h2>6. Obblighi dell'utente e contenuti caricati</h2>
+    <p>L'utente si impegna a utilizzare il Servizio in modo lecito e a caricare esclusivamente elaborati e documenti
+    di cui detiene i diritti necessari, o per i quali è comunque autorizzato all'utilizzo tramite il Servizio. Gli
+    elaborati caricati restano di proprietà dell'utente: Studio Pè non ne acquisisce alcun diritto di proprietà
+    intellettuale, salvo quanto strettamente necessario per l'erogazione tecnica del Servizio richiesto (inclusa la
+    loro trasmissione ai fornitori terzi indicati nell'Informativa sulla Privacy quando si utilizzano le funzioni
+    AI). È vietato un utilizzo del Servizio che violi diritti di terzi, la normativa vigente, o che sia finalizzato
+    a sovraccaricare o compromettere il funzionamento del Servizio stesso.</p>
+
+    <h2>7. Limitazione di responsabilità</h2>
+    <p>Il Servizio è fornito "così com'è". Studio Pè adotta ragionevole diligenza nella realizzazione e nel
+    mantenimento del Servizio, ma non garantisce che i risultati prodotti (computi, analisi, stime) siano privi di
+    errori o inesattezze, né che il Servizio sia sempre disponibile senza interruzioni. Nei limiti massimi consentiti
+    dalla legge applicabile, Studio Pè non risponde di danni indiretti derivanti dall'utilizzo del Servizio o dei
+    risultati da esso prodotti, fermo restando quanto indicato al punto 2 circa la necessità di verifica
+    professionale da parte dell'utente.</p>
+
+    <h2>8. Modifiche al servizio e ai termini</h2>
+    <p>Studio Pè si riserva il diritto di modificare, aggiornare o interrompere, in tutto o in parte, le
+    funzionalità del Servizio, così come di aggiornare i presenti termini nel tempo. La data di ultimo aggiornamento
+    è indicata in cima al documento; in caso di modifiche sostanziali che riguardino gli utenti registrati, verrà
+    data comunicazione tramite email o tramite avviso sul sito.</p>
+
+    <h2>9. Legge applicabile e foro competente</h2>
+    <p>I presenti termini sono regolati dalla legge italiana. Per qualsiasi controversia relativa alla loro
+    interpretazione o esecuzione è competente il foro del luogo di residenza o domicilio del consumatore, ove
+    applicabile ai sensi di legge; negli altri casi è competente il Foro di Como
+    <span class="placeholder">[DA COMPLETARE/CONFERMARE con un legale]</span>.</p>
+
+    <h2>10. Contatti</h2>
+    <p>Per qualsiasi domanda relativa ai presenti termini è possibile scrivere a
+    <a href="mailto:architettura@studiope.it">architettura@studiope.it</a>.</p>
+  </div>
+
+  <footer class="landing-footer">
+    <span class="foot-brand">Studio Pè <span>· Estima</span></span>
+    <span class="foot-meta">Carimate (CO) — <a class="foot-link" href="https://francope.com" target="_blank" rel="noopener">francope.com</a></span>
+  </footer>
+</div>
+
+<script>
+function estimaSetTheme(dark) {
+  try {
+    if (dark) document.documentElement.setAttribute("data-theme", "dark");
+    else document.documentElement.removeAttribute("data-theme");
+    localStorage.setItem("estima-theme", dark ? "dark" : "light");
+  } catch (e) {}
+}
+function estimaToggleTheme() {
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  estimaSetTheme(!isDark);
+}
+const navThemeBtn = document.getElementById("navThemeBtn");
+navThemeBtn.addEventListener("click", estimaToggleTheme);
+navThemeBtn.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); estimaToggleTheme(); }
+});
+</script>
+</body>
+</html>
