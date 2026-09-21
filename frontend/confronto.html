@@ -1,0 +1,1849 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Confronto preventivi imprese — Estima</title>
+<script>
+// Applica il tema salvato PRIMA che la pagina venga disegnata, per evitare un
+// lampo del tema sbagliato al caricamento. Se qualcosa fallisce (localStorage
+// bloccato, ecc.) resta semplicemente il tema chiaro di default: nessun problema.
+try {
+  var savedTheme = localStorage.getItem("estima-theme");
+  if (savedTheme === "dark") document.documentElement.setAttribute("data-theme", "dark");
+} catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font-serif: 'Fraunces', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+    --font-head: 'Space Grotesk', 'Inter', sans-serif;
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --bg: #f2ebdc;
+    --paper: #fffcf6;
+    --glass-bg: rgba(255,252,246,0.88);
+    --glass-bg-strong: rgba(255,255,255,0.62);
+    --glass-border: rgba(74,54,30,0.16);
+    --ink: #2b2419;
+    --ink-soft: #7d715f;
+    --ink-faint: #9c9080;
+    --line: rgba(74,54,30,0.15);
+    --line-strong: rgba(74,54,30,0.28);
+    --accent: #b4703f;
+    --accent-soft-c: #c98a54;
+    --accent-dark: #8a5527;
+    --accent-soft: rgba(180,112,63,0.14);
+    --ok-bg: rgba(76,107,52,0.12);
+    --ok-fg: #4c6b34;
+    --err-bg: rgba(161,58,38,0.10);
+    --err-fg: #a13a26;
+    --warn-bg: rgba(138,90,23,0.12);
+    --warn-fg: #8a5a17;
+    --radius-s: 8px;
+    --radius-m: 18px;
+    --shadow-card: 0 24px 50px -28px rgba(74,54,30,0.30);
+  }
+
+  /* --- tema scuro: stessa direzione tortora/bronzo, invertita --- */
+  html[data-theme="dark"] {
+    --bg: #1d1a17;
+    --paper: #2a251f;
+    --glass-bg: rgba(35,30,25,0.88);
+    --glass-bg-strong: rgba(255,255,255,0.07);
+    --glass-border: rgba(238,228,211,0.14);
+    --ink: #f4ede1;
+    --ink-soft: #b7ab97;
+    --ink-faint: #8a8072;
+    --line: rgba(238,228,211,0.14);
+    --line-strong: rgba(238,228,211,0.26);
+    --accent: #c69566;
+    --accent-soft-c: #e3b98a;
+    --accent-dark: #8a5527;
+    --accent-soft: rgba(230,190,140,0.16);
+    --ok-bg: rgba(143,194,106,0.14);
+    --ok-fg: #9ecb7c;
+    --err-bg: rgba(224,123,95,0.14);
+    --err-fg: #e28a70;
+    --warn-bg: rgba(224,178,90,0.14);
+    --warn-fg: #e0b25a;
+    --shadow-card: 0 24px 60px -24px rgba(0,0,0,0.6);
+  }
+  html[data-theme="dark"] #stepNav { background: rgba(29,26,23,0.72); }
+  html[data-theme="dark"] .noise-vignette {
+    background: radial-gradient(ellipse at 50% 0%, rgba(29,26,23,0) 0%, rgba(29,26,23,0.4) 55%, rgba(29,26,23,0.92) 100%);
+  }
+  html[data-theme="dark"] .grid-overlay {
+    background-image:
+      linear-gradient(rgba(198,149,102,0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(198,149,102,0.07) 1px, transparent 1px);
+  }
+  html[data-theme="dark"] button:not(.secondary):not(.small) {
+    color: #241a10;
+    background: linear-gradient(120deg, var(--accent-soft-c), var(--accent));
+    border-color: transparent;
+  }
+  html[data-theme="dark"] button:not(.secondary):not(.small):hover {
+    background: linear-gradient(120deg, var(--accent), var(--accent-dark));
+    box-shadow: 0 14px 28px -10px rgba(198,149,102,0.5);
+    color: #241a10;
+  }
+  html[data-theme="dark"] #vociTable tr.voce-da-completare { background: rgba(230,190,140,0.10); }
+  html[data-theme="dark"] #vociTable tr.voce-da-completare input { background: rgba(230,190,140,0.06); }
+  html[data-theme="dark"] .step-nav-theme .icon-moon { display: none; }
+  html[data-theme="dark"] .step-nav-theme .icon-sun { display: inline; }
+  .step-nav-theme .icon-sun { display: none; }
+
+  * { box-sizing: border-box; }
+
+  html, body { background: var(--bg); }
+
+  body {
+    font-family: var(--font-sans);
+    max-width: 900px;
+    margin: 0 auto;
+    padding: calc(3rem + 52px) 1.5rem 5rem;
+    color: var(--ink);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+  }
+
+  /* --- barra fissa di navigazione a step --- */
+  #stepNav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+    display: flex; align-items: center; gap: .4rem;
+    padding: .5rem clamp(.8rem, 4vw, 2rem);
+    background: rgba(242,235,220,0.72);
+    border-bottom: 1px solid var(--glass-border);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    overflow-x: auto; scrollbar-width: none;
+  }
+  #stepNav::-webkit-scrollbar { display: none; }
+  #stepNav .step-nav-brand {
+    font-family: var(--font-head); font-weight: 600; font-size: .74rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--accent); flex: none; margin-right: .6rem;
+    display: none; text-decoration: none; transition: color .2s ease;
+  }
+  #stepNav .step-nav-brand:hover { color: var(--accent-dark); }
+  #stepNav .step-nav-btn {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 1.9rem; height: 1.9rem; border-radius: 50%; cursor: pointer;
+    font-family: var(--font-head); font-size: .74rem; font-weight: 600;
+    color: var(--ink-faint); background: transparent; border: 1px solid var(--glass-border);
+    transition: color .2s ease, border-color .2s ease, background .2s ease, transform .15s ease;
+  }
+  #stepNav .step-nav-btn:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-1px); }
+  #stepNav .step-nav-btn.active {
+    color: #fff6ec; background: linear-gradient(120deg, var(--accent), var(--accent-soft-c));
+    border-color: transparent; box-shadow: 0 4px 14px -4px rgba(180,112,63,0.55);
+  }
+  #stepNav .step-nav-btn.done:not(.active) { color: var(--accent); border-color: rgba(180,112,63,0.4); }
+  #stepNav .step-nav-fill { flex: 1; }
+  #stepNav .step-nav-theme {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 1.9rem; height: 1.9rem; border-radius: 50%; cursor: pointer;
+    background: transparent; border: 1px solid var(--glass-border); color: var(--ink-soft);
+    font-size: .92rem; transition: border-color .2s ease, color .2s ease;
+  }
+  #stepNav .step-nav-theme:hover { border-color: var(--accent); color: var(--accent); }
+  @media (min-width: 760px) {
+    #stepNav .step-nav-brand { display: inline-block; }
+  }
+  @media (max-width: 640px) {
+    #stepNav { padding: .4rem .7rem; }
+    #stepNav .step-nav-btn, #stepNav .step-nav-theme { width: 1.7rem; height: 1.7rem; font-size: .7rem; }
+  }
+
+  /* --- account (accesso/registrazione, progetti in cloud) --- */
+  #stepNav .step-nav-account-wrap { position: relative; flex: none; }
+  #stepNav .step-nav-account {
+    flex: none; display: inline-flex; align-items: center; gap: .35rem;
+    height: 1.9rem; padding: 0 .7rem; border-radius: 999px; cursor: pointer;
+    font-family: var(--font-head); font-size: .74rem; font-weight: 600;
+    color: var(--ink-soft); background: transparent; border: 1px solid var(--glass-border);
+    transition: border-color .2s ease, color .2s ease;
+    max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #stepNav .step-nav-account:hover { border-color: var(--accent); color: var(--accent); }
+  #stepNav .step-nav-account .avatar {
+    flex: none; width: 1.25rem; height: 1.25rem; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: linear-gradient(120deg, var(--accent), var(--accent-soft-c)); color: #fff6ec;
+    font-size: .68rem; font-weight: 700;
+  }
+  .account-dropdown {
+    /* position/top/right impostati via JS (vedi estimaApriDropdown): il
+       pulsante vive dentro #stepNav, che ha overflow-x:auto — per una
+       proprietà poco nota della spec CSS, questo trasforma anche
+       overflow-y in "auto", tagliando qualunque discendente posizionato in
+       absolute che sporga oltre l'altezza della barra. Soluzione: il menu
+       è agganciato al <body> con position:fixed, fuori da quel contesto di
+       overflow, con la posizione calcolata dal punto esatto del pulsante. */
+    z-index: 40;
+    width: 19rem; max-width: calc(100vw - 2rem);
+    background: var(--paper); border: 1px solid var(--glass-border); border-radius: var(--radius-m);
+    box-shadow: var(--shadow-card); padding: 1rem; font-size: .85rem;
+  }
+  .account-dropdown h4 { margin: 0 0 .6rem; font-family: var(--font-head); font-size: .9rem; }
+  .account-dropdown label { display: block; font-size: .78rem; color: var(--ink-soft); margin: .5rem 0 .2rem; }
+  .account-dropdown input[type="email"], .account-dropdown input[type="password"], .account-dropdown input[type="text"] {
+    width: 100%; box-sizing: border-box; padding: .45rem .6rem; border-radius: var(--radius-s);
+    border: 1px solid var(--line); font-size: .85rem; background: var(--glass-bg-strong); color: var(--ink);
+  }
+  .account-dropdown .tabs { display: flex; gap: .4rem; margin-bottom: .6rem; }
+  .account-dropdown .tabs button {
+    flex: 1; padding: .35rem 0; border-radius: var(--radius-s); border: 1px solid var(--glass-border);
+    background: transparent; color: var(--ink-soft); font-size: .78rem; cursor: pointer;
+  }
+  .account-dropdown .tabs button.active { background: var(--accent); color: #fff6ec; border-color: transparent; }
+  .account-dropdown .msg-err { color: var(--err-fg); font-size: .78rem; margin-top: .4rem; }
+  .account-dropdown .msg-ok { color: var(--ok-fg); font-size: .78rem; margin-top: .4rem; }
+  .account-dropdown button[type="submit"] { width: 100%; margin-top: .7rem; }
+  .account-dropdown .account-info-email { font-weight: 600; word-break: break-all; }
+  .account-dropdown .account-plan { margin-top: .35rem; font-size: .8rem; color: var(--ink-soft); }
+  .account-dropdown .account-plan strong { color: var(--ink); }
+  .account-dropdown .account-actions { display: flex; flex-direction: column; gap: .4rem; margin-top: .8rem; }
+  .account-dropdown .account-actions button#btnCompraCrediti {
+    background: var(--accent); color: #fff6ec; border: 1px solid transparent;
+  }
+  .account-dropdown .account-actions button#btnCompraCrediti:disabled { opacity: .6; cursor: default; }
+  .account-dropdown .quota-bars { margin-top: .6rem; }
+  .account-dropdown .quota-bar-row { margin-bottom: .55rem; }
+  .account-dropdown .quota-bar-label {
+    display: flex; justify-content: space-between; font-size: .76rem; color: var(--ink-soft); margin-bottom: .25rem;
+  }
+  .account-dropdown .quota-bar-track {
+    width: 100%; height: 7px; background: var(--glass-bg-strong); border-radius: 999px; overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .account-dropdown .quota-bar-fill {
+    height: 100%; width: 0%; background: var(--accent); border-radius: 999px;
+    transition: width .3s ease, background-color .3s ease;
+  }
+  .account-dropdown .quota-bar-fill.quota-piena { background: var(--err-fg); }
+  .account-dropdown .plan-buttons { display: flex; flex-direction: column; gap: .4rem; }
+  .account-dropdown .plan-buttons button { text-align: left; }
+  .account-dropdown .plan-buttons .plan-price { float: right; color: var(--ink-soft); font-weight: 400; }
+  .account-dropdown #btnAnnullaAbbonamento {
+    width: 100%; margin-top: .5rem; background: transparent; border: 1px solid var(--err-fg); color: var(--err-fg);
+  }
+
+  /* Avviso dopo il ritorno dal pagamento Stripe (?acquisto=ok|annullato in
+     app.html, vedi estimaGestisciRitornoAcquisto): un piccolo banner in alto,
+     non un vero e proprio sistema di notifiche — questa è l'unica pagina che
+     ne ha bisogno per ora. */
+  .estima-toast {
+    position: fixed; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 80;
+    max-width: calc(100vw - 2rem); padding: .7rem 1.1rem; border-radius: var(--radius-m);
+    background: var(--paper); border: 1px solid var(--glass-border); box-shadow: var(--shadow-card);
+    font-size: .85rem; color: var(--ink);
+  }
+  .estima-toast.ok { border-color: var(--ok-fg); }
+  .estima-toast.err { border-color: var(--err-fg); }
+
+  /* --- comparsa delle sezioni allo scroll --- */
+  section.reveal-init { opacity: 0; transform: translateY(28px); transition: opacity .7s cubic-bezier(.2,.9,.25,1), transform .7s cubic-bezier(.2,.9,.25,1); }
+  section.reveal-init.in-view { opacity: 1; transform: translateY(0); }
+  @media (prefers-reduced-motion: reduce) {
+    section.reveal-init { opacity: 1; transform: none; transition: none; }
+  }
+
+  /* --- fixed atmospheric layers: WebGL canvas + blueprint grid + vignette ---
+     (c'era anche una "scanline" animata, una linea orizzontale che attraversava
+     lentamente la pagina: rimossa perché, essendo dietro a pannelli comunque un
+     po' trasparenti, si vedeva come una fastidiosa striscia colorata che
+     attraversava il contenuto — segnalato da Franco.) */
+  #webgl-bg { position: fixed; inset: 0; z-index: -4; }
+  .grid-overlay {
+    position: fixed; inset: 0; z-index: -3; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(120,85,50,0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120,85,50,0.07) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
+  }
+  .noise-vignette {
+    position: fixed; inset: 0; z-index: -2; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 0%, rgba(242,235,220,0) 0%, rgba(242,235,220,0.15) 55%, rgba(242,235,220,0.6) 100%);
+  }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: .55rem;
+    font-family: var(--font-head); font-size: .72rem; font-weight: 600; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--accent);
+    margin-bottom: 1.3rem;
+  }
+  .eyebrow::before {
+    content: ""; width: .42rem; height: .42rem; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px 2px rgba(180,112,63,0.4);
+    animation: pulse 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(.72); } }
+  @media (prefers-reduced-motion: reduce) { .eyebrow::before { animation: none; } }
+
+  h1 {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    font-size: clamp(1.9rem, 1.3rem + 2.4vw, 3.1rem);
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+    margin: 0 0 .6rem;
+    color: var(--ink);
+    display: flex; flex-wrap: wrap; gap: .05em .3em; align-items: baseline;
+  }
+  h1 .word {
+    display: inline-block; opacity: 0; transform: translateY(.5em);
+    animation: rise .9s cubic-bezier(.2,.9,.25,1) forwards, shimmer 9s linear infinite 1s;
+    background: linear-gradient(120deg, var(--ink), var(--accent) 45%, var(--accent-soft-c) 60%, var(--ink));
+    background-size: 280% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  h1 .word:nth-child(1) { animation-delay: .05s, 1s; }
+  h1 .word:nth-child(2) { animation-delay: .18s, 1s; }
+  h1 .word:nth-child(3) { animation-delay: .31s, 1s; }
+  @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+  @keyframes shimmer { to { background-position: -280% 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    h1 .word { animation: none; opacity: 1; transform: none; background-position: 0 0; }
+  }
+  h1 .tag {
+    display: inline-block;
+    font-family: var(--font-head);
+    font-size: .38em;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    border-radius: 999px;
+    padding: .35em .8em;
+    vertical-align: middle;
+    margin-left: .3rem;
+  }
+
+  body > p.lede {
+    color: var(--ink-soft);
+    font-size: .95rem;
+    max-width: 640px;
+    margin: 0 0 2.6rem;
+    padding-bottom: 1.8rem;
+    border-bottom: 1px solid var(--line);
+  }
+  body > p.lede small.hint { color: var(--ink-soft); }
+
+  /* --- glass section panels --- */
+  section {
+    /* NOTA: qui c'era prima anche backdrop-filter (l'effetto "vetro smerigliato"
+       sull'immagine 3D di sfondo). Rimosso deliberatamente: su form lunghi con
+       molte righe (es. il computo con tante voci) obbligava il browser a
+       rifare continuamente la sfocatura durante lo scroll, con il risultato
+       di uno scroll che sembrava bloccato — e in alcuni browser può anche
+       impedire l'apertura corretta dei menu a tendina nativi (<select>)
+       dentro alla sezione, come nel prezzario di riferimento. Lo sfondo resta
+       comunque leggermente trasparente (vedi --glass-bg, reso più opaco per
+       compensare l'assenza della sfocatura), solo senza l'effetto sfocato. */
+    position: relative;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-m);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.45) inset, var(--shadow-card);
+    padding: 2rem clamp(1.2rem, 4vw, 2.4rem);
+    margin-bottom: 1.9rem;
+    overflow: hidden;
+  }
+  section::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+    background: linear-gradient(135deg, rgba(180,112,63,0.38), rgba(180,112,63,0) 45%, rgba(125,113,95,0.22) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    opacity: .6; pointer-events: none;
+  }
+  section::after {
+    content: ""; position: absolute; top: -35%; left: -8%; width: 55%; height: 130%;
+    background: radial-gradient(circle, rgba(180,112,63,0.07), transparent 65%);
+    pointer-events: none;
+  }
+
+  section h2 {
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+    margin: 0 0 1.5rem;
+    padding-bottom: 1.1rem;
+    border-bottom: 1px solid var(--line);
+    font-weight: 500;
+    font-size: 1.02rem;
+    position: relative; z-index: 1;
+  }
+  h2 .step-num {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border: 1px solid rgba(180,112,63,0.5);
+    border-radius: 50%;
+    background: var(--glass-bg-strong);
+    box-shadow: 0 0 12px rgba(180,112,63,0.16);
+    font-family: var(--font-head);
+    font-size: .8rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  h2 .step-title {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 1.28rem;
+    letter-spacing: -0.005em;
+    color: var(--ink);
+  }
+
+  h3 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 1.08rem;
+    letter-spacing: -0.003em;
+    margin: 1.8rem 0 .7rem;
+    color: var(--ink);
+  }
+  h3:first-child { margin-top: 0; }
+
+  label {
+    display: block;
+    margin: 1.15rem 0 .4rem;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: .84rem;
+    letter-spacing: .002em;
+    color: var(--ink-soft);
+  }
+  label:first-of-type { margin-top: 0; }
+  label[style*="font-weight:normal"] {
+    font-size: .95rem;
+    color: var(--ink);
+    font-weight: 400 !important;
+  }
+
+  input[type=text], input[type=number], textarea, select {
+    width: 100%;
+    padding: .62rem .75rem;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-s);
+    box-sizing: border-box;
+    font-family: var(--font-sans);
+    font-size: .92rem;
+    color: var(--ink);
+    background: var(--glass-bg-strong);
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input[type=text]:focus, input[type=number]:focus, textarea:focus, select:focus,
+  input[type=file]:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  input[type=file] {
+    width: 100%;
+    font-family: var(--font-sans);
+    font-size: .85rem;
+    color: var(--ink-soft);
+    padding: .5rem 0;
+  }
+  input[type=file]::file-selector-button {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: .78rem;
+    letter-spacing: .02em;
+    color: var(--ink);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-s);
+    padding: .5rem .9rem;
+    margin-right: .8rem;
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  input[type=file]::file-selector-button:hover { border-color: var(--accent); background: var(--accent-soft); }
+  textarea { resize: vertical; }
+
+  input[type=radio], input[type=checkbox] { accent-color: var(--accent); }
+
+  button {
+    margin-top: .9rem;
+    padding: .7rem 1.4rem;
+    border: 1px solid var(--ink);
+    border-radius: 999px;
+    background: linear-gradient(120deg, var(--ink), #4a3a26);
+    color: var(--paper);
+    cursor: pointer;
+    font-family: var(--font-head);
+    font-weight: 600;
+    font-size: .86rem;
+    letter-spacing: .01em;
+    box-shadow: 0 10px 24px -12px rgba(43,36,25,0.5);
+    transition: background .2s ease, border-color .2s ease, transform .12s ease, box-shadow .2s ease;
+  }
+  button:hover {
+    background: linear-gradient(120deg, var(--accent), var(--accent-soft-c));
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px -12px rgba(180,112,63,0.55);
+  }
+  button:active { transform: translateY(1px); }
+  button.secondary {
+    background: var(--glass-bg-strong);
+    color: var(--ink);
+    border: 1px solid var(--glass-border);
+    box-shadow: none;
+  }
+  button.secondary:hover { background: rgba(255,255,255,0.8); border-color: var(--accent); color: var(--accent-dark); box-shadow: none; }
+  button:disabled, button:disabled:hover {
+    background: #ded8ca; border-color: #ded8ca; color: #948c7e; cursor: not-allowed; transform: none; box-shadow: none;
+  }
+
+  .msg { font-size: .88rem; padding: .6rem .85rem; border-radius: var(--radius-s); margin-top: .7rem; white-space: pre-wrap; }
+  .msg.ok { background: var(--ok-bg); color: var(--ok-fg); }
+  .msg.err { background: var(--err-bg); color: var(--err-fg); }
+
+  .question, .doc-row, .param-row { border-top: 1px solid var(--line); padding-top: .75rem; margin-top: .75rem; }
+  .doc-row { font-size: .92rem; }
+  .doc-row .req { color: var(--err-fg); font-size: .76rem; font-weight: 600; }
+  .doc-row .opt { color: var(--ink-faint); font-size: .76rem; }
+  .radio-group {
+    position: relative; display: inline-flex; gap: .2rem; margin-top: .5rem;
+    padding: .3rem; border-radius: 999px;
+    background: rgba(255,255,255,0.4); border: 1px solid var(--glass-border);
+  }
+  .radio-group::before {
+    content: ""; position: absolute; z-index: 1; top: .3rem; bottom: .3rem; left: .3rem;
+    width: calc(50% - .3rem); border-radius: 999px;
+    background: linear-gradient(120deg, var(--accent), var(--accent-soft-c));
+    box-shadow: 0 4px 16px -4px rgba(180,112,63,0.5);
+    transition: transform .35s cubic-bezier(.2,.9,.25,1);
+  }
+  .radio-group:has(label:nth-of-type(2) input:checked)::before { transform: translateX(100%); }
+  .radio-group label {
+    position: relative; z-index: 2; margin: 0 !important;
+    padding: .62rem 1.25rem; border-radius: 999px; cursor: pointer;
+    transition: color .3s ease;
+  }
+  .radio-group label:has(input:checked) { color: #fff6ec; }
+  .radio-group input[type=radio] { position: absolute; opacity: 0; pointer-events: none; }
+  small.hint { color: var(--ink-faint); font-size: .82rem; line-height: 1.55; }
+  .param-row { display: grid; grid-template-columns: 1fr 140px; gap: .6rem; align-items: center; }
+
+  table.edit-table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .85rem; }
+  table.edit-table th {
+    text-align: left; font-size: .7rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--ink-faint); padding: .35rem .4rem; border-bottom: 1px solid var(--line-strong);
+  }
+  table.edit-table td { padding: .3rem .4rem; border-bottom: 1px solid var(--line); }
+  table.edit-table tbody tr:hover { background: rgba(255,255,255,0.4); }
+  table.edit-table input, table.edit-table select { padding: .4rem .45rem; font-size: .85rem; }
+  table.edit-table input[type=number] { width: 90px; }
+  table.edit-table input[type=text] { width: 100%; min-width: 100px; }
+
+  button.small {
+    margin: 0; width: 1.9rem; height: 1.9rem; padding: 0; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: .95rem; font-weight: 400; border-radius: 50%;
+    background: transparent; color: var(--ink-faint); border: 1px solid var(--line-strong);
+  }
+  button.small:hover { background: var(--err-bg); color: var(--err-fg); border-color: var(--err-fg); }
+  button.secondary.small-add { margin-top: .5rem; padding: .4rem .8rem; font-size: .8rem; }
+
+  .note-box {
+    font-size: .85rem; background: var(--warn-bg); color: var(--warn-fg); border-radius: var(--radius-s);
+    padding: .65rem .85rem; margin-top: .6rem; white-space: pre-wrap; border: 1px solid #efe0bb;
+  }
+  .note-box-warn { background: var(--err-bg); color: var(--err-fg); font-weight: 600; border: 1px solid #eac6ba; }
+
+  .comment-cell { min-width: 200px; }
+  .comment-log { max-height: 90px; overflow-y: auto; margin-bottom: .3rem; font-size: .78rem; }
+  .comment-log div { padding: .15rem 0; }
+  .comment-log .log-tu { color: var(--ink); }
+  .comment-log .log-tu::before { content: "🧑 "; }
+  .comment-log .log-ai { color: var(--ok-fg); }
+  .comment-log .log-ai::before { content: "🤖 "; }
+  .comment-log .log-err { color: var(--err-fg); }
+  .comment-log .log-err::before { content: "⚠️ "; }
+  .comment-input { width: 100%; font-size: .8rem !important; padding: .35rem .5rem !important; box-sizing: border-box; }
+  .affidabilita-badge { font-size: .78rem; white-space: nowrap; color: var(--ink-soft); }
+
+  .osservazione-box { font-size: .85rem; border-radius: var(--radius-s); padding: .6rem .85rem; margin-top: .6rem; }
+  .osservazione-alta { background: var(--err-bg); color: var(--err-fg); border: 1px solid #eac6ba; }
+  .osservazione-media { background: var(--warn-bg); color: var(--warn-fg); border: 1px solid #efe0bb; }
+  .osservazione-bassa { background: var(--bg); color: var(--ink-soft); border: 1px solid var(--line); }
+
+  #vociTable tr.voce-da-completare { background: #fbf3de; }
+  #vociTable tr.voce-da-completare input { background: #fffaee; }
+  #vociTable tfoot, .voceImporto { font-variant-numeric: tabular-nums; }
+
+  .file-list { display: flex; flex-wrap: wrap; gap: .4rem; margin: .55rem 0 .2rem; }
+  .file-chip {
+    display: inline-flex; align-items: center; gap: .5rem; background: var(--glass-bg-strong); color: var(--ink);
+    border: 1px solid var(--glass-border); border-radius: 999px; padding: .25rem .3rem .25rem .75rem;
+    font-size: .78rem; max-width: 100%;
+  }
+  .file-chip span.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+  .file-chip button {
+    margin: 0; padding: 0; width: 1.25rem; height: 1.25rem; line-height: 1; border-radius: 50%;
+    background: var(--ink-faint); color: var(--paper); font-size: .76rem; font-weight: 700; cursor: pointer; flex: none;
+    border: none;
+  }
+  .file-chip button:hover { background: var(--err-fg); }
+  .file-chip .file-thumb {
+    width: 1.7rem; height: 1.7rem; border-radius: 50%; overflow: hidden; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--glass-bg); font-size: .85rem; margin-left: -.5rem; border: 1px solid var(--glass-border);
+  }
+  .file-chip .file-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  .history-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: .6rem .9rem;
+    padding: .6rem .8rem; border: 1px solid var(--glass-border); border-radius: var(--radius-s);
+    background: var(--glass-bg-strong);
+  }
+  .history-row .history-main { flex: 1; min-width: 180px; }
+  .history-row .history-name { font-weight: 600; color: var(--ink); }
+  .history-row .history-meta { color: var(--ink-soft); font-size: .82rem; margin-top: .1rem; }
+  .history-row .history-actions { display: flex; gap: .5rem; flex: none; }
+  .history-row .history-actions button { padding: .4rem .9rem; font-size: .78rem; }
+
+  #uploadProgressWrap { margin-top: .8rem; }
+  #uploadProgressBar {
+    width: 100%; height: 8px; background: var(--glass-bg-strong); border-radius: 999px; overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  #uploadProgressFill {
+    height: 100%; width: 0%; background: var(--accent); border-radius: 999px;
+    transition: width .2s ease, background-color .4s ease;
+  }
+  #uploadProgressFill.done { background: var(--ok-fg); }
+  #uploadProgressFill.in-elaborazione {
+    background-image: linear-gradient(135deg, var(--accent) 25%, var(--accent-soft-c) 25%, var(--accent-soft-c) 50%,
+      var(--accent) 50%, var(--accent) 75%, var(--accent-soft-c) 75%, var(--accent-soft-c) 100%);
+    background-size: 28px 28px;
+    animation: uploadStripe 1s linear infinite;
+  }
+  @keyframes uploadStripe { from { background-position: 0 0; } to { background-position: 28px 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    #uploadProgressFill.in-elaborazione { animation: none; opacity: .7; }
+  }
+  #uploadProgressLabel { display: block; margin-top: .35rem; }
+
+  details { margin-top: 1.1rem; border-top: 1px dashed var(--line); padding-top: .9rem; }
+  summary {
+    cursor: pointer; font-weight: 600; font-size: .84rem; color: var(--ink-soft);
+    letter-spacing: .01em; list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; color: var(--accent); }
+  details[open] > summary::before { content: "▾ "; }
+  details[open] > summary { color: var(--ink); margin-bottom: .7rem; }
+  summary:hover { color: var(--accent-dark); }
+
+  #step5 p strong { font-family: var(--font-serif); font-size: 1.15rem; font-weight: 600; }
+  #step5 > p { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+
+  @media (max-width: 640px) {
+    body { padding: calc(2rem + 46px) 1rem 4rem; }
+    section { padding: 1.4rem 1.1rem; }
+    .param-row { grid-template-columns: 1fr; align-items: start; }
+    .radio-group label { padding: .58rem .85rem; font-size: .88rem; }
+  }
+</style>
+</head>
+<body>
+<canvas id="webgl-bg"></canvas>
+<div class="grid-overlay"></div>
+<div class="noise-vignette"></div>
+<style>
+  .impresa-block { margin-bottom: 1.1rem; }
+  .impresa-block .impMsg { margin-top: .5rem; }
+  .tabella-confronto { width: 100%; border-collapse: collapse; margin-top: .8rem; font-size: .85rem; }
+  .tabella-confronto th, .tabella-confronto td { border: 1px solid var(--line); padding: .35rem .5rem; text-align: left; }
+  .tabella-confronto th { background: var(--glass-bg-strong); font-weight: 600; }
+  .tabella-confronto td input[type="number"], .tabella-confronto td input[type="text"] {
+    width: 100%; margin: 0; padding: .3rem .4rem; font-size: .85rem;
+  }
+  .tabella-confronto tfoot td { border: none; padding-top: .6rem; }
+  .campi-progetto { display: flex; gap: .8rem; flex-wrap: wrap; margin-bottom: .8rem; }
+  .campi-progetto > div { flex: 1; min-width: 200px; }
+  .genera-azioni { display: flex; gap: .6rem; flex-wrap: wrap; }
+</style>
+
+<p class="eyebrow">Studio Pè · Estima</p>
+<h1><span class="word">Confronto</span><span class="word">preventivi</span><span class="word">imprese</span></h1>
+<p class="lede"><small class="hint">Carica il computo metrico di riferimento e i preventivi ricevuti dalle
+imprese, ciascuno nel formato in cui te l'hanno mandato: Estima abbina i prezzi alle voci del computo e genera
+un unico file di confronto, in Excel e PDF, con i totali per ogni impresa affiancati.</small></p>
+
+<section id="stepConfronto">
+  <h2><span class="step-num">1</span><span class="step-title">Confronto preventivi imprese</span></h2>
+
+  <div class="card">
+    <h3 style="margin-top:0">1. Computo metrico di riferimento</h3>
+    <p class="hint">Carica il file <code>computo_metrico.xlsx</code> già scaricato da Estima per questo
+    progetto (pulsante "Excel" nel passaggio di revisione del computo, oppure dallo zip completo). È la base
+    su cui verranno confrontati i prezzi delle imprese: viene solo riletta così com'è, nessuna elaborazione AI
+    in questo passaggio.</p>
+    <div class="campi-progetto">
+      <div>
+        <label>Nome progetto (facoltativo, per l'intestazione del file)</label>
+        <input type="text" id="confrontoNomeProgetto" placeholder="es. Villa Maria Luca" />
+      </div>
+      <div>
+        <label>Committente (facoltativo)</label>
+        <input type="text" id="confrontoCommittente" />
+      </div>
+    </div>
+    <label>File computo (.xlsx)</label>
+    <input type="file" id="fileComputoBase" accept=".xlsx,.xls" />
+    <button type="button" id="btnCaricaBase">Carica computo</button>
+    <div id="msgBase"></div>
+    <div id="riepilogoBase" style="display:none"></div>
+  </div>
+
+  <div class="card" id="sezioneImprese" style="display:none">
+    <h3 style="margin-top:0">2. Preventivi delle imprese</h3>
+    <p class="hint">Per ogni impresa, scrivi il nome e carica il preventivo così com'è — PDF, Excel o anche
+    una foto/scansione — nel formato in cui te l'ha mandato: un'AI abbina automaticamente ogni prezzo alla
+    voce di computo corrispondente. <strong>Verifica sempre l'abbinamento prima di generare il file
+    finale</strong>: dopo l'interpretazione compare una tabella dove puoi correggere a mano qualunque prezzo o
+    nota. Questo passaggio richiede un account connesso e consuma crediti/quota AI (una chiamata per ogni
+    preventivo caricato) — generare il file di confronto finale, invece, è sempre gratuito, quante volte
+    vuoi.</p>
+    <div id="impreseWrap"></div>
+    <button type="button" class="secondary small-add" id="btnAggiungiImpresa">+ Aggiungi impresa</button>
+  </div>
+
+  <div class="card" id="sezioneGenera" style="display:none">
+    <h3 style="margin-top:0">3. Genera il confronto</h3>
+    <p class="hint">Il file segue sempre lo stesso schema: voci raggruppate per categoria con quantità, e per
+    ogni impresa il prezzo unitario e il totale di riga affiancati, con i totali finali in fondo — puoi
+    scaricarlo di nuovo ogni volta che correggi un prezzo, senza costi aggiuntivi.</p>
+    <div class="genera-azioni">
+      <button type="button" class="secondary" id="btnScaricaConfrontoExcel">📊 Excel</button>
+      <button type="button" class="secondary" id="btnScaricaConfrontoPdf">📄 PDF</button>
+    </div>
+    <div id="msgGenera"></div>
+  </div>
+</section>
+
+<script>
+const API = "";
+let confrontoVociBase = [];
+let confrontoImprese = []; // {id, righeById: Map(numero -> {prezzo_unitario, nota}), totaleDichiarato, interpretata}
+let confrontoImpreseSeq = 0;
+
+function confrontoEsc(s) { return String(s == null ? "" : s).replace(/</g, "&lt;"); }
+function confrontoEur(v) {
+  return Number(v).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+}
+function confrontoErrore(data, status) {
+  return (data && (data.error || data.detail || (data.messages && data.messages[0]))) || `Errore (HTTP ${status})`;
+}
+
+document.getElementById("btnCaricaBase").addEventListener("click", async () => {
+  const fileInput = document.getElementById("fileComputoBase");
+  const msgEl = document.getElementById("msgBase");
+  const file = fileInput.files[0];
+  if (!file) { msgEl.innerHTML = '<div class="msg err">Seleziona prima il file del computo.</div>'; return; }
+  msgEl.innerHTML = '<div class="msg">Lettura in corso…</div>';
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const res = await fetch(`${API}/api/confronto/carica-base`, { method: "POST", body: fd });
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    if (!res.ok) throw new Error(confrontoErrore(data, res.status));
+    confrontoVociBase = data.voci;
+    msgEl.innerHTML = `<div class="msg ok">Computo caricato: ${confrontoVociBase.length} voci riconosciute.</div>`;
+    const riep = document.getElementById("riepilogoBase");
+    riep.style.display = "";
+    const categorie = [...new Set(confrontoVociBase.map((v) => v.categoria || "Senza categoria"))];
+    riep.innerHTML = `<p class="hint">Categorie riconosciute: ${categorie.map(confrontoEsc).join(", ")}</p>`;
+    document.getElementById("sezioneImprese").style.display = "";
+    // Ricollega le tabelle già eventualmente interpretate alle nuove voci (raro: succede solo se l'utente
+    // ricarica un computo diverso dopo aver già interpretato dei preventivi).
+    confrontoImprese.filter((i) => i.interpretata).forEach((i) => renderTabellaImpresa(i.id));
+    aggiornaVisibilitaGenera();
+  } catch (err) {
+    msgEl.innerHTML = `<div class="msg err">${confrontoEsc(err.message || err)}</div>`;
+  }
+});
+
+function aggiungiImpresa() {
+  const id = "imp-" + (++confrontoImpreseSeq);
+  const impresa = { id, righeById: new Map(), totaleDichiarato: null, interpretata: false };
+  confrontoImprese.push(impresa);
+  const wrap = document.getElementById("impreseWrap");
+  const div = document.createElement("div");
+  div.className = "card impresa-block";
+  div.id = id;
+  div.innerHTML = `
+    <div style="display:flex; gap:.6rem; align-items:flex-end; flex-wrap:wrap">
+      <div style="flex:1; min-width:180px">
+        <label>Nome impresa</label>
+        <input type="text" class="impNome" placeholder="es. Bortolato" />
+      </div>
+      <div style="flex:2; min-width:220px">
+        <label>Preventivo ricevuto (PDF, Excel o foto)</label>
+        <input type="file" class="impFile" accept=".pdf,.xlsx,.xls,.jpg,.jpeg,.png,.webp" />
+      </div>
+      <button type="button" class="impBtnInterpreta">🔎 Interpreta con AI</button>
+      <button type="button" class="small impBtnRimuovi" title="Rimuovi impresa">✕</button>
+    </div>
+    <div class="impMsg"></div>
+    <div class="impTabellaWrap" style="display:none"></div>`;
+  wrap.appendChild(div);
+
+  div.querySelector(".impBtnRimuovi").addEventListener("click", () => {
+    confrontoImprese = confrontoImprese.filter((i) => i.id !== id);
+    div.remove();
+    aggiornaVisibilitaGenera();
+  });
+  div.querySelector(".impBtnInterpreta").addEventListener("click", () => interpretaImpresa(id));
+}
+
+async function interpretaImpresa(id) {
+  const impresa = confrontoImprese.find((i) => i.id === id);
+  const div = document.getElementById(id);
+  const nome = div.querySelector(".impNome").value.trim();
+  const file = div.querySelector(".impFile").files[0];
+  const msgEl = div.querySelector(".impMsg");
+  if (!confrontoVociBase.length) {
+    msgEl.innerHTML = '<div class="msg err">Carica prima il computo di riferimento (passaggio 1).</div>';
+    return;
+  }
+  if (!nome) { msgEl.innerHTML = '<div class="msg err">Inserisci il nome dell’impresa.</div>'; return; }
+  if (!file) { msgEl.innerHTML = '<div class="msg err">Seleziona il file del preventivo.</div>'; return; }
+  msgEl.innerHTML = '<div class="msg">Interpretazione in corso (può richiedere qualche secondo)…</div>';
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("nome_impresa", nome);
+  fd.append("voci_json", JSON.stringify(confrontoVociBase));
+  try {
+    const res = await fetch(`${API}/api/confronto/interpreta-preventivo`, { method: "POST", body: fd });
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    if (!res.ok) throw new Error(confrontoErrore(data, res.status));
+    impresa.righeById = new Map(
+      data.righe.map((r) => [r.numero, { prezzo_unitario: r.prezzo_unitario, nota: r.nota || "" }])
+    );
+    impresa.totaleDichiarato = data.totale_dichiarato;
+    impresa.interpretata = true;
+    msgEl.innerHTML = `<div class="msg ok">${confrontoEsc(data.sintesi || "Interpretazione completata.")} Verifica i prezzi qui sotto prima di generare il confronto.</div>`;
+    renderTabellaImpresa(id);
+    aggiornaVisibilitaGenera();
+  } catch (err) {
+    msgEl.innerHTML = `<div class="msg err">${confrontoEsc(err.message || err)}</div>`;
+  }
+}
+
+function renderTabellaImpresa(id) {
+  const impresa = confrontoImprese.find((i) => i.id === id);
+  const div = document.getElementById(id);
+  const wrap = div.querySelector(".impTabellaWrap");
+  wrap.style.display = "";
+  const righe = confrontoVociBase.map((v) => ({
+    v, r: impresa.righeById.get(v.numero) || { prezzo_unitario: null, nota: "" },
+  }));
+  wrap.innerHTML = `
+    <table class="tabella-confronto">
+      <thead><tr>
+        <th>N.</th><th>Descrizione</th><th>U.M.</th><th>Quantità</th>
+        <th>Prezzo unitario (€)</th><th>Importo (€)</th><th>Nota</th>
+      </tr></thead>
+      <tbody>
+        ${righe.map(({ v, r }) => `
+          <tr data-numero="${v.numero}">
+            <td>${v.numero}</td>
+            <td>${confrontoEsc(v.descrizione)}</td>
+            <td>${confrontoEsc(v.unita_misura)}</td>
+            <td>${Number(v.quantita || 0).toLocaleString("it-IT", { maximumFractionDigits: 2 })}</td>
+            <td><input type="number" step="0.01" min="0" class="rigaPrezzo" value="${r.prezzo_unitario ?? ""}" placeholder="non quotata" /></td>
+            <td class="rigaImporto">${r.prezzo_unitario != null ? confrontoEur(r.prezzo_unitario * v.quantita) : "—"}</td>
+            <td><input type="text" class="rigaNota" value="${confrontoEsc(r.nota)}" /></td>
+          </tr>`).join("")}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="5" style="text-align:right; border:none"><strong>Totale ricalcolato</strong></td>
+          <td class="totaleRicalcolato" style="border:none"><strong></strong></td>
+          <td style="border:none"></td>
+        </tr>
+        <tr>
+          <td colspan="5" style="text-align:right; border:none">Totale dichiarato dall'impresa (facoltativo, solo a titolo di controllo)</td>
+          <td colspan="2" style="border:none"><input type="number" step="0.01" min="0" class="totaleDichiaratoInput" value="${impresa.totaleDichiarato ?? ""}" /></td>
+        </tr>
+      </tfoot>
+    </table>`;
+  wrap.querySelectorAll(".rigaPrezzo, .rigaNota").forEach((inp) => inp.addEventListener("input", () => aggiornaRigaEImporti(id)));
+  wrap.querySelector(".totaleDichiaratoInput").addEventListener("input", (e) => {
+    impresa.totaleDichiarato = e.target.value === "" ? null : Number(e.target.value);
+  });
+  aggiornaRigaEImporti(id);
+}
+
+function aggiornaRigaEImporti(id) {
+  const impresa = confrontoImprese.find((i) => i.id === id);
+  const div = document.getElementById(id);
+  let totale = 0;
+  div.querySelectorAll(".impTabellaWrap tbody tr").forEach((tr) => {
+    const numero = Number(tr.dataset.numero);
+    const voce = confrontoVociBase.find((v) => v.numero === numero);
+    const prezzoInput = tr.querySelector(".rigaPrezzo");
+    const notaInput = tr.querySelector(".rigaNota");
+    const prezzoVal = prezzoInput.value === "" ? null : Number(prezzoInput.value);
+    const prezzo = prezzoVal != null && !Number.isNaN(prezzoVal) ? prezzoVal : null;
+    const importoCell = tr.querySelector(".rigaImporto");
+    if (prezzo != null) {
+      const importo = prezzo * (voce ? voce.quantita : 0);
+      importoCell.textContent = confrontoEur(importo);
+      totale += importo;
+    } else {
+      importoCell.textContent = "—";
+    }
+    impresa.righeById.set(numero, { prezzo_unitario: prezzo, nota: notaInput.value });
+  });
+  const totCell = div.querySelector(".totaleRicalcolato strong");
+  if (totCell) totCell.textContent = confrontoEur(totale);
+}
+
+function aggiornaVisibilitaGenera() {
+  const almenoUna = confrontoImprese.some((i) => i.interpretata);
+  document.getElementById("sezioneGenera").style.display = almenoUna ? "" : "none";
+}
+
+document.getElementById("btnAggiungiImpresa").addEventListener("click", aggiungiImpresa);
+aggiungiImpresa(); // parte già con il primo riquadro pronto da compilare
+
+async function scaricaConfronto(formato) {
+  const msgEl = document.getElementById("msgGenera");
+  const imprese = confrontoImprese.filter((i) => i.interpretata).map((i) => {
+    const div = document.getElementById(i.id);
+    const nome = (div.querySelector(".impNome").value || "").trim() || "Impresa";
+    return {
+      nome,
+      righe: Array.from(i.righeById.entries()).map(([numero, r]) => ({
+        numero, prezzo_unitario: r.prezzo_unitario, nota: r.nota,
+      })),
+      totale_dichiarato: i.totaleDichiarato,
+    };
+  });
+  if (!imprese.length) {
+    msgEl.innerHTML = '<div class="msg err">Interpreta almeno un preventivo prima di generare il confronto.</div>';
+    return;
+  }
+  msgEl.innerHTML = '<div class="msg">Generazione in corso…</div>';
+  try {
+    const res = await fetch(`${API}/api/confronto/scarica`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        formato, voci: confrontoVociBase, imprese,
+        meta: {
+          nome_progetto: document.getElementById("confrontoNomeProgetto").value.trim() || "Progetto senza nome",
+          committente: document.getElementById("confrontoCommittente").value.trim(),
+        },
+      }),
+    });
+    if (!res.ok) {
+      let data = null;
+      try { data = await res.json(); } catch (e) {}
+      throw new Error(confrontoErrore(data, res.status));
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = formato === "excel" ? "confronto_preventivi.xlsx" : "confronto_preventivi.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    msgEl.innerHTML = '<div class="msg ok">File generato e scaricato.</div>';
+  } catch (err) {
+    msgEl.innerHTML = `<div class="msg err">${confrontoEsc(err.message || err)}</div>`;
+  }
+}
+document.getElementById("btnScaricaConfrontoExcel").addEventListener("click", () => scaricaConfronto("excel"));
+document.getElementById("btnScaricaConfrontoPdf").addEventListener("click", () => scaricaConfronto("pdf"));
+</script>
+<script>
+(function () {
+  try {
+    const STEP_IDS = ["stepConfronto"];
+    const sections = STEP_IDS.map((id) => document.getElementById(id)).filter(Boolean);
+    if (!sections.length) return;
+
+    function reduceMotionNav() {
+      return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    }
+    function isReachable(sec) {
+      return sec.style.display !== "none";
+    }
+
+    const nav = document.createElement("div");
+    nav.id = "stepNav";
+    const brand = document.createElement("a");
+    brand.className = "step-nav-brand";
+    brand.href = "/";
+    brand.textContent = "Estima";
+    brand.title = "Torna alla home";
+    nav.appendChild(brand);
+
+    const btnById = {};
+    sections.forEach((sec, i) => {
+      const btn = document.createElement("span");
+      btn.className = "step-nav-btn";
+      btn.textContent = String(i + 1);
+      btn.setAttribute("role", "button");
+      btn.setAttribute("tabindex", "0");
+      const titleEl = sec.querySelector(".step-title");
+      btn.title = titleEl ? titleEl.textContent.trim() : ("Passo " + (i + 1));
+      btn.addEventListener("click", () => goToStep(sec, btn));
+      btn.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goToStep(sec, btn); }
+      });
+      nav.appendChild(btn);
+      btnById[sec.id] = btn;
+    });
+
+    const fill = document.createElement("span");
+    fill.className = "step-nav-fill";
+    nav.appendChild(fill);
+
+    const themeBtn = document.createElement("span");
+    themeBtn.className = "step-nav-theme";
+    themeBtn.title = "Cambia tema chiaro/scuro";
+    themeBtn.setAttribute("role", "button");
+    themeBtn.setAttribute("tabindex", "0");
+    themeBtn.innerHTML = '<span class="icon-moon">\u{1F319}</span><span class="icon-sun">☀️</span>';
+    nav.appendChild(themeBtn);
+
+    document.body.insertBefore(nav, document.body.firstChild);
+
+    function goToStep(sec, btn) {
+      if (!isReachable(sec)) {
+        // Passo non ancora sbloccato: una piccola scossa per far capire che non
+        // si può ancora saltare avanti, nessuno scroll verso contenuto vuoto.
+        btn.style.transition = "transform .12s ease";
+        btn.style.transform = "translateX(-3px)";
+        setTimeout(() => { btn.style.transform = "translateX(3px)"; }, 90);
+        setTimeout(() => { btn.style.transform = ""; }, 180);
+        return;
+      }
+      const navHeight = nav.offsetHeight || 52;
+      const top = sec.getBoundingClientRect().top + window.pageYOffset - navHeight - 14;
+      window.scrollTo({ top, behavior: reduceMotionNav() ? "auto" : "smooth" });
+    }
+
+    function refreshReachability() {
+      sections.forEach((sec) => {
+        const btn = btnById[sec.id];
+        if (!btn) return;
+        if (isReachable(sec)) btn.classList.add("done");
+        else btn.classList.remove("done");
+      });
+    }
+    refreshReachability();
+
+    // Osserva i cambi di style applicati dal codice esistente man mano che
+    // l'utente sblocca i passi successivi (stessa convenzione display
+    // "none"/"block" già usata in tutta l'app), per aggiornare i pulsanti
+    // senza dover modificare quella logica.
+    if ("MutationObserver" in window) {
+      const mo = new MutationObserver(() => refreshReachability());
+      sections.forEach((sec) => mo.observe(sec, { attributes: true, attributeFilter: ["style"] }));
+    }
+
+    // Scroll-spy: evidenzia il passo attualmente a schermo. Basato sulla
+    // posizione di scroll (non su IntersectionObserver a soglia percentuale)
+    // perché le section hanno altezze molto diverse tra loro (alcune più
+    // lunghe di uno schermo intero): un semplice "qual è l'ultima section il
+    // cui inizio ha già superato la barra fissa" funziona per tutte le
+    // altezze, mentre una soglia di intersezione fissa non scatterebbe mai
+    // per le section più lunghe del viewport.
+    let spyTicking = false;
+    function updateActiveOnScroll() {
+      spyTicking = false;
+      const navHeight = nav.offsetHeight || 52;
+      const spyY = navHeight + 40;
+      let current = null;
+      for (const sec of sections) {
+        if (sec.style.display === "none") continue;
+        const rect = sec.getBoundingClientRect();
+        if (rect.top <= spyY) current = sec;
+      }
+      if (!current) current = sections.find((s) => s.style.display !== "none") || sections[0];
+      const btn = btnById[current.id];
+      if (btn && !btn.classList.contains("active")) {
+        Object.values(btnById).forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+      }
+    }
+    window.addEventListener("scroll", () => {
+      if (!spyTicking) {
+        spyTicking = true;
+        requestAnimationFrame(updateActiveOnScroll);
+      }
+    }, { passive: true });
+    window.addEventListener("resize", () => { requestAnimationFrame(updateActiveOnScroll); });
+    updateActiveOnScroll();
+
+    // --- interruttore tema chiaro/scuro ---
+    function setTheme(dark) {
+      try {
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+        else document.documentElement.removeAttribute("data-theme");
+        localStorage.setItem("estima-theme", dark ? "dark" : "light");
+      } catch (e) { /* localStorage non disponibile: il tema resta solo per questa sessione */ }
+      if (window.__estimaSetWebglTheme) {
+        try { window.__estimaSetWebglTheme(dark); } catch (e) {}
+      }
+    }
+    function toggleTheme() {
+      const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+      setTheme(!isDark);
+    }
+    themeBtn.addEventListener("click", toggleTheme);
+    themeBtn.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleTheme(); }
+    });
+    window.__estimaSetTheme = setTheme;
+  } catch (e) {
+    // La barra di navigazione è un'aggiunta accessoria: se qualcosa va storto
+    // qui, il resto del sito (upload, calcolo, download...) continua a
+    // funzionare normalmente.
+  }
+})();
+</script>
+<script>
+let estimaUtenteCorrente = null; // null = non connesso; altrimenti {id, email, nome, piano}
+// Quale vista mostrare nel menu account quando non si è connessi: "accedi"
+// (le tab accedi/registrati, il comportamento di sempre), "richiedi-reset"
+// (form "password dimenticata") o "nuova-password" (form per scegliere la
+// nuova password, aperto automaticamente da un link di reset ricevuto via
+// email — vedi estimaGestisciResetPassword). estimaTokenResetCorrente porta
+// il token della URL fino al submit del form "nuova-password".
+let estimaVistaAuth = "accedi";
+let estimaTokenResetCorrente = null;
+
+async function estimaFetchJson(url, options) {
+  const res = await fetch(url, options);
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    const msg = (data && (data.error || (data.messages && data.messages[0]))) || `Errore (HTTP ${res.status})`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+async function estimaCaricaUtenteCorrente() {
+  try {
+    const data = await estimaFetchJson(`${API}/api/auth/utente`);
+    estimaUtenteCorrente = data.utente || null;
+  } catch (e) {
+    estimaUtenteCorrente = null;
+  }
+  estimaRenderAccountButton();
+}
+
+function estimaIniziali(utente) {
+  const base = (utente.nome && utente.nome.trim()) || utente.email || "?";
+  return base.trim().charAt(0).toUpperCase();
+}
+
+function estimaChiudiDropdown() {
+  const dd = document.getElementById("accountDropdown");
+  if (dd) dd.remove();
+}
+
+function estimaRenderAccountButton() {
+  const btn = document.getElementById("accountBtn");
+  if (!btn) return;
+  if (estimaUtenteCorrente) {
+    btn.innerHTML = `<span class="avatar">${estimaIniziali(estimaUtenteCorrente)}</span><span>${(estimaUtenteCorrente.nome || estimaUtenteCorrente.email).replace(/</g, "&lt;")}</span>`;
+  } else {
+    btn.innerHTML = "Accedi";
+  }
+}
+
+function estimaFormAccesso() {
+  return `
+    <div class="tabs">
+      <button type="button" data-tab="accedi" class="active">Accedi</button>
+      <button type="button" data-tab="registrati">Registrati</button>
+    </div>
+    <form id="formAuth" data-mode="accedi">
+      <label>Email</label>
+      <input type="email" id="authEmail" required autocomplete="email">
+      <label>Password</label>
+      <input type="password" id="authPassword" required autocomplete="current-password" minlength="8">
+      <div id="authNomeWrap" style="display:none">
+        <label>Nome (facoltativo)</label>
+        <input type="text" id="authNome" autocomplete="name">
+      </div>
+      <p id="authConsensoWrap" style="margin:.6rem 0 0; display:none; font-size:.8rem; color:var(--ink-soft)">
+        <label style="display:flex; align-items:flex-start; gap:.5rem; font-size:inherit; color:inherit; margin:0">
+          <input type="checkbox" id="authConsenso" style="margin-top:.2rem">
+          <span>Ho letto e accetto i <a href="/termini-condizioni.html" target="_blank" rel="noopener">Termini e Condizioni</a>
+          e l'<a href="/informativa-privacy.html" target="_blank" rel="noopener">Informativa Privacy</a>.</span>
+        </label>
+      </p>
+      <button type="submit">Accedi</button>
+      <div id="authMsg"></div>
+      <p id="passwordDimenticataWrap" style="margin:.5rem 0 0">
+        <a href="#" id="linkPasswordDimenticata" class="hint">Password dimenticata?</a>
+      </p>
+    </form>
+    <p style="margin:.7rem 0 0"><small class="hint">L'account serve a salvare in automatico una copia dei tuoi
+    progetti sul server (oltre allo storico già presente in questo browser), così non li perdi cambiando
+    dispositivo o svuotando la cache, e ad acquistare crediti per le funzioni AI (analisi render, revisione del
+    computo) quando ti servono: il resto del sito resta comunque gratuito senza bisogno di
+    crediti. Consulta anche l'<a href="/informativa-privacy.html" target="_blank" rel="noopener">Informativa
+    Privacy</a> e i <a href="/termini-condizioni.html" target="_blank" rel="noopener">Termini e Condizioni</a>.</small></p>`;
+}
+
+function estimaFormRichiediReset() {
+  return `
+    <h4>Password dimenticata</h4>
+    <p class="hint" style="margin:0 0 .8rem">Inserisci l'email del tuo account: se corrisponde a un account
+    esistente, ti mandiamo un'email con le istruzioni per reimpostare la password.</p>
+    <form id="formRichiediReset">
+      <label>Email</label>
+      <input type="email" id="richiediResetEmail" required autocomplete="email">
+      <button type="submit">Invia email di reset</button>
+      <div id="richiediResetMsg"></div>
+    </form>
+    <p style="margin:.7rem 0 0"><a href="#" id="linkTornaAccedi" class="hint">← Torna all'accesso</a></p>`;
+}
+
+function estimaFormNuovaPassword() {
+  return `
+    <h4>Imposta una nuova password</h4>
+    <p class="hint" style="margin:0 0 .8rem">Scegli la nuova password per il tuo account.</p>
+    <form id="formNuovaPassword">
+      <label>Nuova password</label>
+      <input type="password" id="resetPassword1" required minlength="8" autocomplete="new-password">
+      <label>Conferma password</label>
+      <input type="password" id="resetPassword2" required minlength="8" autocomplete="new-password">
+      <button type="submit">Imposta nuova password</button>
+      <div id="resetMsg"></div>
+    </form>`;
+}
+
+// Sceglie quale delle tre viste "non connesso" mostrare nel menu account
+// (vedi estimaVistaAuth più sopra).
+function estimaContenutoNonLoggato() {
+  if (estimaVistaAuth === "richiedi-reset") return estimaFormRichiediReset();
+  if (estimaVistaAuth === "nuova-password") return estimaFormNuovaPassword();
+  return estimaFormAccesso();
+}
+
+// Riga "Piano" mostrata nel menu account: legge gli stessi campi già
+// restituiti da utente_pubblico() lato server (piano/crediti_residui/
+// abbonamento_stato — vedi backend/accounts/db.py), tutti ancora NULL/beta
+// finché non si lancia un vero piano a pagamento. Scritta così da mostrare
+// automaticamente crediti o abbonamento non appena quei campi verranno
+// valorizzati, senza bisogno di toccare di nuovo questo file.
+function estimaEtichettaPiano(u) {
+  if (u.abbonamento_stato === "attivo") {
+    const nomePiano = u.abbonamento_piano
+      ? u.abbonamento_piano.charAt(0).toUpperCase() + u.abbonamento_piano.slice(1)
+      : "";
+    const scad = u.abbonamento_rinnovo_il ? ` — rinnovo il ${estimaFmtDataOra(u.abbonamento_rinnovo_il).split(",")[0]}` : "";
+    return `Abbonamento: <strong>${nomePiano}</strong>${scad}`;
+  }
+  if (u.abbonamento_stato === "in_ritardo") {
+    return `Abbonamento: <strong>pagamento in ritardo</strong> <span class="hint">— verifica il metodo di pagamento</span>`;
+  }
+  if (u.crediti_residui !== null && u.crediti_residui !== undefined) {
+    return `Crediti residui: <strong>${u.crediti_residui}</strong>`;
+  }
+  return `Piano: <strong>Beta gratuita</strong> <span class="hint">— attiva un abbonamento o acquista crediti</span>`;
+}
+
+function estimaContenutoAccountLoggato() {
+  const u = estimaUtenteCorrente;
+  return `
+    <h4>Il tuo account</h4>
+    <div class="account-info-email">${u.email.replace(/</g, "&lt;")}</div>
+    <div class="account-plan">${estimaEtichettaPiano(u)}</div>
+    <div id="abbonamentoWrap" class="quota-bars"><span class="hint">Caricamento abbonamento…</span></div>
+    <div class="account-actions">
+      <button type="button" id="btnCompraCrediti">💳 Compra crediti</button>
+      <button type="button" class="secondary" id="btnApriProgettiCloud">☁️ I miei progetti salvati</button>
+      <button type="button" class="secondary" id="btnEsciAccount">Esci</button>
+    </div>`;
+}
+
+function estimaApriDropdown() {
+  estimaChiudiDropdown();
+  const wrap = document.getElementById("accountBtnWrap");
+  const btn = document.getElementById("accountBtn");
+  if (!wrap || !btn) return;
+  const dd = document.createElement("div");
+  dd.id = "accountDropdown";
+  dd.className = "account-dropdown";
+  dd.innerHTML = estimaUtenteCorrente ? estimaContenutoAccountLoggato() : estimaContenutoNonLoggato();
+  // Agganciato al <body>, non a "wrap" (dentro #stepNav): vedi il commento
+  // sulla classe .account-dropdown nel CSS sul perché non può stare lì.
+  document.body.appendChild(dd);
+  const rect = btn.getBoundingClientRect();
+  dd.style.position = "fixed";
+  dd.style.top = (rect.bottom + 8) + "px";
+  dd.style.right = (window.innerWidth - rect.right) + "px";
+
+  // Ridisegna SOLO il contenuto di "dd" (senza ricrearlo) e ricollega gli
+  // handler della vista "non connesso" attiva in quel momento: usata sia al
+  // primo apertura sia quando si passa da una vista all'altra (accedi <->
+  // password dimenticata). Fondamentale non richiamare estimaApriDropdown()
+  // per questi passaggi interni: ricreerebbe "dd" e registrerebbe un altro
+  // handler "chiudi cliccando fuori" (vedi sotto) senza rimuovere quello
+  // precedente, che restando agganciato al vecchio nodo ormai staccato dal
+  // DOM chiuderebbe il menu al primo click al suo interno.
+  function ridisegnaVistaNonLoggato() {
+    dd.innerHTML = estimaContenutoNonLoggato();
+    wireVistaNonLoggato();
+  }
+
+  function wireVistaNonLoggato() {
+    if (estimaVistaAuth === "richiedi-reset") {
+      const form = document.getElementById("formRichiediReset");
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const msgEl = document.getElementById("richiediResetMsg");
+        msgEl.innerHTML = "";
+        const email = document.getElementById("richiediResetEmail").value.trim();
+        const submitBtn = form.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        try {
+          const data = await estimaFetchJson(`${API}/api/auth/richiedi-reset`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }),
+          });
+          msgEl.innerHTML = `<div class="msg-ok">${String(data.messaggio || "").replace(/</g, "&lt;")}</div>`;
+          document.getElementById("richiediResetEmail").disabled = true;
+        } catch (err) {
+          msgEl.innerHTML = `<div class="msg-err">${String(err.message || err).replace(/</g, "&lt;")}</div>`;
+          submitBtn.disabled = false;
+        }
+      });
+      const linkTorna = document.getElementById("linkTornaAccedi");
+      if (linkTorna) linkTorna.addEventListener("click", (e) => {
+        e.preventDefault();
+        // stopPropagation ESSENZIALE: ridisegnaVistaNonLoggato() sotto
+        // sostituisce subito dd.innerHTML, quindi il nodo cliccato (e.target)
+        // smette di essere un discendente di "dd" ancora PRIMA che l'evento
+        // finisca di risalire fino al listener "chiudi cliccando fuori" su
+        // document (vedi più sotto) — che altrimenti, non trovandolo più
+        // dentro "dd", lo scambierebbe per un click fuori e chiuderebbe il
+        // menu invece di cambiare vista (bug riprodotto e corretto in fase
+        // di test).
+        e.stopPropagation();
+        estimaVistaAuth = "accedi";
+        ridisegnaVistaNonLoggato();
+      });
+      return;
+    }
+    if (estimaVistaAuth === "nuova-password") {
+      const form = document.getElementById("formNuovaPassword");
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const msgEl = document.getElementById("resetMsg");
+        msgEl.innerHTML = "";
+        const p1 = document.getElementById("resetPassword1").value;
+        const p2 = document.getElementById("resetPassword2").value;
+        if (p1 !== p2) {
+          msgEl.innerHTML = `<div class="msg-err">Le due password inserite non coincidono.</div>`;
+          return;
+        }
+        const submitBtn = form.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        try {
+          const data = await estimaFetchJson(`${API}/api/auth/reset-password`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: estimaTokenResetCorrente, password: p1 }),
+          });
+          estimaUtenteCorrente = data.utente;
+          estimaVistaAuth = "accedi";
+          estimaTokenResetCorrente = null;
+          estimaRenderAccountButton();
+          estimaChiudiDropdown();
+          estimaMostraToast("Password aggiornata: sei connesso con il tuo account.", "ok");
+        } catch (err) {
+          msgEl.innerHTML = `<div class="msg-err">${String(err.message || err).replace(/</g, "&lt;")}</div>`;
+          submitBtn.disabled = false;
+        }
+      });
+      return;
+    }
+    // Vista predefinita "accedi"/"registrati": comportamento invariato,
+    // con l'aggiunta del link "Password dimenticata?".
+    dd.querySelectorAll(".tabs button").forEach((tabBtn) => {
+      tabBtn.addEventListener("click", () => {
+        dd.querySelectorAll(".tabs button").forEach((b) => b.classList.remove("active"));
+        tabBtn.classList.add("active");
+        const mode = tabBtn.dataset.tab;
+        const form = document.getElementById("formAuth");
+        form.dataset.mode = mode;
+        document.getElementById("authNomeWrap").style.display = mode === "registrati" ? "block" : "none";
+        const consensoWrap = document.getElementById("authConsensoWrap");
+        if (consensoWrap) consensoWrap.style.display = mode === "registrati" ? "block" : "none";
+        const linkWrap = document.getElementById("passwordDimenticataWrap");
+        if (linkWrap) linkWrap.style.display = mode === "registrati" ? "none" : "block";
+        form.querySelector('button[type="submit"]').textContent = mode === "registrati" ? "Crea account" : "Accedi";
+        document.getElementById("authMsg").innerHTML = "";
+      });
+    });
+    const form = document.getElementById("formAuth");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msgEl = document.getElementById("authMsg");
+      msgEl.innerHTML = "";
+      const email = document.getElementById("authEmail").value.trim();
+      const password = document.getElementById("authPassword").value;
+      const nome = document.getElementById("authNome") ? document.getElementById("authNome").value.trim() : "";
+      const mode = form.dataset.mode;
+      const consensoInput = document.getElementById("authConsenso");
+      if (mode === "registrati" && consensoInput && !consensoInput.checked) {
+        msgEl.innerHTML = `<div class="msg-err">Devi accettare Termini e Condizioni e Informativa Privacy per creare un account.</div>`;
+        return;
+      }
+      const submitBtn = form.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      try {
+        const endpoint = mode === "registrati" ? "/api/auth/registrati" : "/api/auth/accedi";
+        const body = mode === "registrati" ? { email, password, nome, consenso: true } : { email, password };
+        const data = await estimaFetchJson(`${API}${endpoint}`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        });
+        estimaUtenteCorrente = data.utente;
+        estimaRenderAccountButton();
+        estimaChiudiDropdown();
+        await estimaSincronizzaStoricoLocaleConCloud();
+      } catch (err) {
+        msgEl.innerHTML = `<div class="msg-err">${String(err.message || err).replace(/</g, "&lt;")}</div>`;
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+    const linkReset = document.getElementById("linkPasswordDimenticata");
+    if (linkReset) linkReset.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation(); // vedi il commento su stopPropagation in linkTornaAccedi più sopra
+      estimaVistaAuth = "richiedi-reset";
+      ridisegnaVistaNonLoggato();
+    });
+  }
+
+  // Carica lo stato dell'abbonamento (piani attivabili, oppure barre di
+  // utilizzo se già abbonato) DOPO che il menu è già visibile: i dati non
+  // sono inclusi in utente_pubblico() per restare leggero, quindi la vista
+  // parte con "Caricamento…" (vedi estimaContenutoAccountLoggato) e viene
+  // ridisegnata qui appena arriva la risposta. Ogni accesso a "abbonamentoWrap"
+  // ricontrolla che esista ancora nel DOM: l'utente potrebbe aver chiuso il
+  // menu prima che la richiesta finisse.
+  async function caricaAbbonamentoWrap() {
+    let dati;
+    try {
+      dati = await estimaFetchJson(`${API}/api/account/utilizzo`);
+    } catch (err) {
+      const w = document.getElementById("abbonamentoWrap");
+      if (w) w.innerHTML = `<span class="hint">Non è stato possibile caricare i dati dell'abbonamento.</span>`;
+      return;
+    }
+    const w = document.getElementById("abbonamentoWrap");
+    if (!w) return;
+
+    // Finché è attivo il periodo di prova gratuita (vedi MODALITA_PROVA lato server),
+    // crediti e abbonamenti restano sospesi: si nasconde il pulsante "Compra crediti" e
+    // si mostra solo una barra di utilizzo SENZA MAI citare una cifra in euro (il tetto
+    // è una tutela interna, non qualcosa su cui l'utente deve ragionare in euro) più un
+    // avviso chiaro che si tratta di un test e che gli abbonamenti arriveranno a breve.
+    if (dati.modalita_prova) {
+      const btnCreditiProva = document.getElementById("btnCompraCrediti");
+      if (btnCreditiProva) btnCreditiProva.style.display = "none";
+      const planEl = document.querySelector("#accountDropdown .account-plan");
+      if (planEl) planEl.innerHTML = "Periodo di prova gratuita";
+      const p = dati.prova || { usati: 0, limite: 1 };
+      const perc = Math.min(100, Math.round((p.usati / p.limite) * 100));
+      w.innerHTML = `
+        <div class="quota-bar-row">
+          <div class="quota-bar-label"><span>Utilizzo di questa settimana</span><span>${perc}%</span></div>
+          <div class="quota-bar-track"><div class="quota-bar-fill${perc >= 100 ? " quota-piena" : ""}" style="width:${perc}%"></div></div>
+        </div>
+        <p class="hint" style="margin-top:.5rem">Stai provando Estima.AI gratuitamente in questo periodo di
+        test. A breve arriveranno gli abbonamenti a pagamento.</p>`;
+      return;
+    }
+
+    if (!dati.abbonamento_disponibile) {
+      w.innerHTML = "";
+      return;
+    }
+
+    if (dati.quota_abbonamento) {
+      const q = dati.quota_abbonamento;
+      const percSett = Math.min(100, Math.round((q.settimana.usati / q.settimana.limite) * 100));
+      const percOra = Math.min(100, Math.round((q.ora.usati / q.ora.limite) * 100));
+      w.innerHTML = `
+        <div class="quota-bar-row">
+          <div class="quota-bar-label"><span>Questa settimana</span><span>${q.settimana.usati}/${q.settimana.limite}</span></div>
+          <div class="quota-bar-track"><div class="quota-bar-fill${percSett >= 100 ? " quota-piena" : ""}" style="width:${percSett}%"></div></div>
+        </div>
+        <div class="quota-bar-row">
+          <div class="quota-bar-label"><span>Quest'ora</span><span>${q.ora.usati}/${q.ora.limite}</span></div>
+          <div class="quota-bar-track"><div class="quota-bar-fill${percOra >= 100 ? " quota-piena" : ""}" style="width:${percOra}%"></div></div>
+        </div>
+        <button type="button" class="secondary" id="btnAnnullaAbbonamento">Annulla abbonamento</button>`;
+      const btnAnnulla = document.getElementById("btnAnnullaAbbonamento");
+      if (btnAnnulla) btnAnnulla.addEventListener("click", async () => {
+        if (!confirm("Annullare l'abbonamento? Resta attivo fino al rinnovo, poi non verrà addebitato di nuovo.")) return;
+        btnAnnulla.disabled = true;
+        const testoOriginale = btnAnnulla.textContent;
+        btnAnnulla.textContent = "Annullamento…";
+        try {
+          const data = await estimaFetchJson(`${API}/api/abbonamento/annulla`, { method: "POST" });
+          estimaMostraToast(data.messaggio || "Abbonamento annullato.", "ok");
+        } catch (err) {
+          estimaMostraToast(String(err.message || err), "err");
+          btnAnnulla.disabled = false;
+          btnAnnulla.textContent = testoOriginale;
+        }
+      });
+    } else {
+      const piani = dati.piani_abbonamento || {};
+      const bottoni = Object.keys(piani).map((id) => {
+        const p = piani[id];
+        const prezzo = (p.prezzo_centesimi / 100).toFixed(2).replace(".", ",");
+        return `<button type="button" class="secondary btn-attiva-piano" data-piano="${id}">`
+          + `Attiva ${p.nome} <span class="plan-price">€${prezzo}/mese</span></button>`;
+      }).join("");
+      w.innerHTML = `<div class="plan-buttons">${bottoni}</div>`;
+      w.querySelectorAll(".btn-attiva-piano").forEach((b) => {
+        b.addEventListener("click", async () => {
+          const piano = b.dataset.piano;
+          const testoOriginale = b.innerHTML;
+          w.querySelectorAll(".btn-attiva-piano").forEach((x) => { x.disabled = true; });
+          b.innerHTML = "Apertura pagamento…";
+          try {
+            const data = await estimaFetchJson(`${API}/api/abbonamento/attiva`, {
+              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ piano }),
+            });
+            // Reindirizza alla pagina di pagamento OSPITATA DA STRIPE: nessun
+            // dato di pagamento passa mai da questa pagina.
+            window.location.href = data.checkout_url;
+          } catch (err) {
+            estimaMostraToast(String(err.message || err), "err");
+            w.querySelectorAll(".btn-attiva-piano").forEach((x) => { x.disabled = false; });
+            b.innerHTML = testoOriginale;
+          }
+        });
+      });
+    }
+  }
+
+  if (!estimaUtenteCorrente) {
+    wireVistaNonLoggato();
+  } else {
+    const btnEsci = document.getElementById("btnEsciAccount");
+    if (btnEsci) btnEsci.addEventListener("click", async () => {
+      try { await estimaFetchJson(`${API}/api/auth/esci`, { method: "POST" }); } catch (e) {}
+      estimaUtenteCorrente = null;
+      estimaRenderAccountButton();
+      estimaChiudiDropdown();
+    });
+    const btnProgetti = document.getElementById("btnApriProgettiCloud");
+    if (btnProgetti) btnProgetti.addEventListener("click", () => {
+      estimaChiudiDropdown();
+      estimaApriPannelloProgettiCloud();
+    });
+    const btnCrediti = document.getElementById("btnCompraCrediti");
+    if (btnCrediti) btnCrediti.addEventListener("click", async () => {
+      btnCrediti.disabled = true;
+      const testoOriginale = btnCrediti.textContent;
+      btnCrediti.textContent = "Apertura pagamento…";
+      try {
+        const data = await estimaFetchJson(`${API}/api/crediti/acquista`, { method: "POST" });
+        // Reindirizza alla pagina di pagamento OSPITATA DA STRIPE: nessun dato
+        // di pagamento passa mai da questa pagina.
+        window.location.href = data.checkout_url;
+      } catch (err) {
+        estimaMostraToast(String(err.message || err), "err");
+        btnCrediti.disabled = false;
+        btnCrediti.textContent = testoOriginale;
+      }
+    });
+    caricaAbbonamentoWrap();
+  }
+
+  // Chiude il menu cliccando fuori (con un piccolo ritardo perché il click
+  // che lo ha aperto non lo richiuda subito).
+  setTimeout(() => {
+    document.addEventListener("click", function chiudiSeFuori(ev) {
+      if (!wrap.contains(ev.target) && !dd.contains(ev.target)) {
+        estimaChiudiDropdown();
+        document.removeEventListener("click", chiudiSeFuori);
+      }
+    });
+  }, 0);
+}
+
+// --- Sincronizzazione con lo storico locale già esistente (vedi blocco
+// precedente): ad ogni checkpoint salvato in locale, se l'utente è connesso,
+// lo stesso snapshot viene anche inviato al server (creato la prima volta,
+// aggiornato le volte successive tramite l'id cloud memorizzato sulla voce
+// locale). Fatto sempre in modo "silenzioso": un errore di rete qui non deve
+// mai interrompere il salvataggio locale, che resta comunque la fonte
+// primaria mentre si lavora. ---
+async function estimaSincronizzaVoceStorico(entry) {
+  if (!estimaUtenteCorrente || !entry) return;
+  try {
+    const payload = {
+      nome: entry.nome, committente: entry.committente || "", ubicazione: entry.ubicazione || "",
+      totale_testo: entry.totaleTesto || "", dati: entry.snapshot,
+    };
+    const endpoint = entry.cloudId ? `/api/progetti/${entry.cloudId}` : "/api/progetti";
+    const method = entry.cloudId ? "PUT" : "POST";
+    const data = await estimaFetchJson(`${API}${endpoint}`, {
+      method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    if (!entry.cloudId && data.progetto) {
+      // Ricorda l'id cloud sulla voce locale corrispondente, per aggiornarla
+      // (invece di duplicarla) alla prossima sincronizzazione.
+      const list = loadProjectHistory();
+      const idx = list.findIndex((e) => e.id === entry.id);
+      if (idx >= 0) {
+        list[idx].cloudId = data.progetto.id;
+        persistProjectHistory(list);
+      }
+    }
+  } catch (e) {
+    // Backup cloud fallito (rete assente, sessione scaduta...): lo storico
+    // locale resta comunque intatto, si riproverà al prossimo salvataggio.
+  }
+}
+
+async function estimaSincronizzaStoricoLocaleConCloud() {
+  if (!estimaUtenteCorrente) return;
+  const list = loadProjectHistory();
+  for (const entry of list) {
+    if (!entry.cloudId) await estimaSincronizzaVoceStorico(entry);
+  }
+}
+
+// Piccolo avviso in alto, usato per ora solo dal ritorno dal pagamento
+// crediti (successo/annullo) e da un eventuale errore nell'apertura del
+// pagamento: non è un sistema di notifiche generale, solo il minimo che
+// serve qui. Si chiude da solo dopo qualche secondo o al click.
+function estimaMostraToast(testo, tipo) {
+  document.querySelectorAll(".estima-toast").forEach((el) => el.remove());
+  const el = document.createElement("div");
+  el.className = `estima-toast ${tipo === "ok" ? "ok" : "err"}`;
+  el.textContent = testo;
+  el.addEventListener("click", () => el.remove());
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 6000);
+}
+
+// Dopo il ritorno dalla pagina di pagamento Stripe, app.html?acquisto=ok o
+// ?acquisto=annullato (vedi success_url/cancel_url in /api/crediti/acquista
+// lato backend): mostra un avviso, ricarica il saldo crediti se il pagamento
+// è andato a buon fine (l'accredito vero avviene lato server tramite il
+// webhook Stripe, non qui — questo è solo un refresh dell'interfaccia) e
+// pulisce l'indirizzo per non rimostrare l'avviso a un successivo refresh.
+async function estimaGestisciRitornoAcquisto() {
+  const params = new URLSearchParams(window.location.search);
+  const esito = params.get("acquisto");
+  if (!esito) return;
+  if (esito === "ok") {
+    estimaMostraToast(
+      "Pagamento ricevuto: i crediti verranno accreditati a momenti (di norma pochi secondi).", "ok",
+    );
+    // Il webhook di Stripe può accreditare i crediti con un piccolo ritardo
+    // rispetto al reindirizzamento dell'utente: un secondo tentativo dopo
+    // qualche secondo copre il caso più comune senza dover ricaricare la
+    // pagina a mano.
+    await estimaCaricaUtenteCorrente();
+    setTimeout(estimaCaricaUtenteCorrente, 4000);
+  } else if (esito === "annullato") {
+    estimaMostraToast("Pagamento annullato: nessun addebito, nessun credito accreditato.", "err");
+  }
+  params.delete("acquisto");
+  const nuovaUrl = window.location.pathname + (params.toString() ? `?${params}` : "");
+  window.history.replaceState({}, "", nuovaUrl);
+}
+
+// Se l'indirizzo contiene ?reset=<token> (link ricevuto via email dopo aver
+// richiesto il recupero password, vedi /api/auth/richiedi-reset lato
+// backend), apre il menu account direttamente sulla vista "imposta nuova
+// password" invece del normale form di accesso. Non verifica il token qui:
+// lo fa il server al submit del form (vedi wireVistaNonLoggato in
+// estimaApriDropdown) — un token scaduto o già usato mostra semplicemente
+// l'errore restituito dal server in quel momento.
+function estimaGestisciResetPassword() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("reset");
+  // ?vista=richiedi-reset arriva dal link "Password dimenticata?" della
+  // home page (frontend/index.html), che non ha un proprio form di reset e
+  // rimanda qui: apre subito il form "richiedi il link di reset" invece del
+  // normale accesso.
+  const vista = params.get("vista");
+  if (!token && vista !== "richiedi-reset") return;
+
+  if (token) {
+    estimaTokenResetCorrente = token;
+    estimaVistaAuth = "nuova-password";
+  } else {
+    estimaVistaAuth = "richiedi-reset";
+  }
+  estimaApriDropdown();
+
+  params.delete("reset");
+  params.delete("vista");
+  const nuovaUrl = window.location.pathname + (params.toString() ? `?${params}` : "");
+  window.history.replaceState({}, "", nuovaUrl);
+}
+
+function estimaFmtDataOra(ts) {
+  try { return new Date(ts).toLocaleString("it-IT"); } catch (e) { return ""; }
+}
+
+async function estimaApriPannelloProgettiCloud() {
+  let panel = document.getElementById("progettiCloudPanel");
+  if (!panel) {
+    const anchor = document.getElementById("step0");
+    if (!anchor || !anchor.parentNode) return;
+    panel = document.createElement("details");
+    panel.id = "progettiCloudPanel";
+    panel.className = "note-box";
+    panel.style.marginBottom = "1.6rem";
+    panel.innerHTML =
+      '<summary>☁️ I tuoi progetti salvati in cloud</summary>' +
+      '<div id="progettiCloudList" style="margin-top:.8rem; display:flex; flex-direction:column; gap:.6rem;"></div>';
+    anchor.parentNode.insertBefore(panel, anchor);
+  }
+  panel.open = true;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  const listEl = document.getElementById("progettiCloudList");
+  listEl.innerHTML = '<p><small class="hint">Caricamento...</small></p>';
+  try {
+    const data = await estimaFetchJson(`${API}/api/progetti`);
+    const progetti = data.progetti || [];
+    if (!progetti.length) {
+      listEl.innerHTML = '<p><small class="hint">Nessun progetto salvato in cloud ancora: viene sincronizzato ' +
+        'automaticamente ogni checkpoint (salvataggio manuale o computo scaricato) da quando hai effettuato ' +
+        'l\'accesso.</small></p>';
+      return;
+    }
+    listEl.innerHTML = "";
+    progetti.forEach((p) => {
+      const row = document.createElement("div");
+      row.className = "history-row";
+      const metaParts = [p.committente, p.ubicazione, estimaFmtDataOra(p.aggiornato_il)].filter(Boolean);
+      let meta = metaParts.join(" · ").replace(/</g, "&lt;");
+      if (p.totale_testo) meta += (meta ? " · " : "") + "€ " + String(p.totale_testo).replace(/</g, "&lt;");
+      row.innerHTML =
+        '<div class="history-main">' +
+          '<div class="history-name">' + String(p.nome).replace(/</g, "&lt;") + '</div>' +
+          '<div class="history-meta">' + meta + '</div>' +
+        '</div>' +
+        '<div class="history-actions">' +
+          '<button type="button" class="secondary" data-action="apri">Apri</button>' +
+          '<button type="button" class="secondary" data-action="elimina">Elimina</button>' +
+        '</div>';
+      row.querySelector('[data-action="apri"]').addEventListener("click", async (ev) => {
+        if (!confirm(`Aprire "${p.nome}"? Il progetto attualmente aperto, se non salvato, verrà sostituito.`)) return;
+        const target = ev.currentTarget;
+        target.disabled = true;
+        target.textContent = "Apertura...";
+        try {
+          const full = await estimaFetchJson(`${API}/api/progetti/${p.id}`);
+          if (typeof restoreDraft === "function") await restoreDraft(full.progetto.dati);
+          panel.open = false;
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        } catch (err) {
+          alert("Errore nell'apertura del progetto: " + (err.message || err));
+        } finally {
+          target.disabled = false;
+          target.textContent = "Apri";
+        }
+      });
+      row.querySelector('[data-action="elimina"]').addEventListener("click", async () => {
+        if (!confirm(`Eliminare definitivamente "${p.nome}" dal cloud? Non si può annullare.`)) return;
+        try {
+          await estimaFetchJson(`${API}/api/progetti/${p.id}`, { method: "DELETE" });
+          estimaApriPannelloProgettiCloud();
+        } catch (err) {
+          alert("Errore nell'eliminazione: " + (err.message || err));
+        }
+      });
+      listEl.appendChild(row);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<p><small class="hint">Errore nel caricamento dei progetti: ${String(err.message || err).replace(/</g, "&lt;")}</small></p>`;
+  }
+}
+
+(function () {
+  try {
+    const nav = document.getElementById("stepNav");
+    if (!nav || document.getElementById("accountBtnWrap")) return;
+    const wrap = document.createElement("span");
+    wrap.id = "accountBtnWrap";
+    wrap.className = "step-nav-account-wrap";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = "accountBtn";
+    btn.className = "step-nav-account";
+    btn.textContent = "Accedi";
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (document.getElementById("accountDropdown")) { estimaChiudiDropdown(); return; }
+      estimaApriDropdown();
+    });
+    wrap.appendChild(btn);
+    nav.appendChild(wrap);
+
+    estimaCaricaUtenteCorrente().then(() => {
+      // Se l'utente risulta già connesso (sessione precedente) e c'è dello
+      // storico locale non ancora sincronizzato (es. salvato prima di aver
+      // fatto l'accesso, o offline), lo sincronizza in automatico ora.
+      estimaSincronizzaStoricoLocaleConCloud();
+      estimaGestisciRitornoAcquisto();
+      estimaGestisciResetPassword();
+    });
+
+    // Ogni volta che un checkpoint viene salvato nello storico locale (salvataggio
+    // manuale o automatico dopo un download), sincronizza anche sul cloud se si è
+    // connessi. Non modifica la funzione originale: la richiama e aggiunge la
+    // sincronizzazione solo dopo, stesso pattern già usato altrove in questo file.
+    if (typeof saveCurrentProjectToHistory === "function") {
+      const originaleSalvaStorico = saveCurrentProjectToHistory;
+      saveCurrentProjectToHistory = function (...args) {
+        const entry = originaleSalvaStorico.apply(this, args);
+        if (entry) estimaSincronizzaVoceStorico(entry);
+        return entry;
+      };
+    }
+  } catch (e) {
+    // L'account è un extra: se qualcosa va storto qui, il resto del sito
+    // (upload, calcolo, download...) continua a funzionare normalmente.
+  }
+})();
+</script>
+
+</body>
+</html>

@@ -54,8 +54,15 @@ from .legge10_engine import extract_stratigrafie_reference
 from .acustica_engine import extract_acustica_reference
 from .relazione_tecnica_engine import extract_relazione_tecnica
 from .elevation_engine import extract_elevation_bands
-from .ai_assistant import interpreta_istruzione, revisiona_computo, analizza_render, AiAssistantError
+from .ai_assistant import (
+    interpreta_istruzione, revisiona_computo, analizza_render, interpreta_preventivo_impresa, AiAssistantError,
+)
 from .notifiche_email import invia_email
+from .confronto_preventivi_engine import (
+    leggi_computo_base, costruisci_confronto, RigaImpresa, ImpresaPreventivo, ConfrontoPreventiviError,
+)
+from .output.confronto_excel_generator import build_confronto_excel
+from .output.confronto_pdf_generator import build_confronto_pdf
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -227,6 +234,10 @@ COSTO_CREDITI = {
     "ai_analisi_render": int(os.environ.get("ESTIMA_COSTO_ANALISI_RENDER", "1")),
     "ai_interpreta_commento": int(os.environ.get("ESTIMA_COSTO_INTERPRETA_COMMENTO", "1")),
     "ai_revisione_computo": int(os.environ.get("ESTIMA_COSTO_REVISIONE_COMPUTO", "3")),
+    # Interpretazione di UN preventivo impresa (confronto prezzi): legge l'intero computo di
+    # riferimento più il documento libero dell'impresa, con lo stesso modello capace usato per
+    # la revisione — costo allineato a quello, non a un'azione riga-per-riga.
+    "ai_interpreta_preventivo": int(os.environ.get("ESTIMA_COSTO_INTERPRETA_PREVENTIVO", "3")),
 }
 # Unico pacchetto di crediti in vendita per ora (si può estendere a più
 # pacchetti in futuro): quantità e prezzo si cambiano da qui/da variabile
@@ -275,6 +286,7 @@ PESO_QUOTA_ABBONAMENTO = {
     "ai_interpreta_commento": int(os.environ.get("ESTIMA_PESO_ABBONAMENTO_INTERPRETA", "1")),
     "ai_analisi_render": int(os.environ.get("ESTIMA_PESO_ABBONAMENTO_RENDER", "3")),
     "ai_revisione_computo": int(os.environ.get("ESTIMA_PESO_ABBONAMENTO_REVISIONE", "8")),
+    "ai_interpreta_preventivo": int(os.environ.get("ESTIMA_PESO_ABBONAMENTO_PREVENTIVO", "8")),
 }
 
 # --- Periodo di prova gratuita ----------------------------------------------
@@ -303,6 +315,7 @@ PESO_COSTO_REALE_PROVA = {
     "ai_interpreta_commento": int(os.environ.get("ESTIMA_PESO_PROVA_INTERPRETA", "1")),
     "ai_analisi_render": int(os.environ.get("ESTIMA_PESO_PROVA_RENDER", "3")),
     "ai_revisione_computo": int(os.environ.get("ESTIMA_PESO_PROVA_REVISIONE", "8")),
+    "ai_interpreta_preventivo": int(os.environ.get("ESTIMA_PESO_PROVA_PREVENTIVO", "8")),
 }
 PROVA_TETTO_SETTIMANALE_EUR = float(os.environ.get("ESTIMA_PROVA_TETTO_SETTIMANALE_EUR", "5.0"))
 PROVA_COSTO_REALE_UNITA_EUR = float(os.environ.get("ESTIMA_COSTO_REALE_UNITA_EUR", "0.01"))
@@ -1685,6 +1698,131 @@ async def api_revisiona_computo(request: Request, payload: dict = Body(...)):
         return JSONResponse(status_code=503, content={"error": str(exc)})
     accounts_db.registra_utilizzo(conn, identificativo, "ai_revisione_computo", utente_id=utente["id"])
     return risultato
+
+
+@app.post("/api/confronto/carica-base")
+async def api_confronto_carica_base(file: UploadFile = File(...)):
+    """Prima fase del confronto preventivi (vedi il commento in cima a
+    confronto_preventivi_engine.py per l'intero flusso): rilegge il file
+    'computo_metrico.xlsx' già scaricato da Estima e ne estrae le voci
+    essenziali da usare come base del confronto. Pura lettura meccanica di un
+    file che Estima stessa ha generato: nessun account richiesto, nessuna
+    chiamata AI."""
+    path = _save_upload(file)
+    try:
+        voci = leggi_computo_base(path)
+    except ConfrontoPreventiviError as exc:
+        raise HTTPException(422, str(exc))
+    return {"voci": voci}
+
+
+@app.post("/api/confronto/interpreta-preventivo")
+async def api_confronto_interpreta_preventivo(
+    request: Request,
+    file: UploadFile = File(...),
+    nome_impresa: str = Form(...),
+    voci_json: str = Form(...),
+):
+    """Seconda fase, ripetuta una volta per ogni impresa caricata: interpreta
+    il preventivo ricevuto così com'è (formato libero) e lo abbina alle voci
+    del computo base. QUESTO è il passaggio che consuma crediti/quota AI (una
+    chiamata per preventivo caricato) — a differenza del resto del confronto,
+    che è puro calcolo. Richiede un account connesso con abbonamento attivo
+    (entro la quota) o crediti sufficienti (401/402/429, vedi
+    _autorizza_azione_ai) e ANTHROPIC_API_KEY configurata sul server (se
+    assente, 503 e i crediti eventualmente scalati vengono restituiti). Il
+    risultato è SEMPRE da rivedere/correggere in interfaccia prima di passare
+    a /api/confronto/scarica, che non consuma nulla."""
+    nome_impresa = (nome_impresa or "").strip()
+    if not nome_impresa:
+        raise HTTPException(400, "Nome impresa mancante.")
+    try:
+        voci = json.loads(voci_json)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, f"Voci di riferimento non valide: {exc}")
+    if not voci:
+        raise HTTPException(400, "Nessuna voce di riferimento: carica prima il computo base.")
+
+    path = _save_upload(file)
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    utente = _utente_sessione(request)
+    identificativo = _identificativo_richiesta(request, utente)
+    _verifica_limite_ai(conn, identificativo)
+    binario = _autorizza_azione_ai(conn, utente, "ai_interpreta_preventivo")
+    try:
+        risultato = interpreta_preventivo_impresa(voci, nome_impresa, path)
+    except AiAssistantError as exc:
+        if binario == "crediti":
+            accounts_db.aggiungi_crediti(conn, utente["id"], COSTO_CREDITI["ai_interpreta_preventivo"])
+        return JSONResponse(status_code=503, content={"error": str(exc)})
+    accounts_db.registra_utilizzo(conn, identificativo, "ai_interpreta_preventivo", utente_id=utente["id"])
+    return risultato
+
+
+@app.post("/api/confronto/scarica")
+async def api_confronto_scarica(payload: dict = Body(...)):
+    """Terza e ultima fase: dalle voci base e dai dati di ciascuna impresa —
+    già rivisti/corretti dall'utente in interfaccia — genera il file di
+    confronto nel formato richiesto ('excel' o 'pdf'). Pura generazione file:
+    nessuna chiamata AI, nessun account richiesto, stesso principio già
+    applicato alla generazione del computo (vedi /api/scarica-formato).
+
+    Corpo atteso: {"formato": "excel"|"pdf", "meta": {...}, "voci": [...],
+    "imprese": [{"nome": str, "righe": [{"numero", "prezzo_unitario", "nota"}],
+    "totale_dichiarato": float|None}]}."""
+    formato = payload.get("formato")
+    if formato not in ("excel", "pdf"):
+        raise HTTPException(400, "formato deve essere 'excel' o 'pdf'.")
+    voci = payload.get("voci") or []
+    imprese_payload = payload.get("imprese") or []
+    meta = payload.get("meta") or {}
+    if not voci:
+        raise HTTPException(400, "Nessuna voce di computo su cui basare il confronto.")
+    if not imprese_payload:
+        raise HTTPException(400, "Serve almeno un'impresa da confrontare.")
+
+    imprese: list[ImpresaPreventivo] = []
+    for imp in imprese_payload:
+        nome = (imp.get("nome") or "").strip()
+        if not nome:
+            continue
+        righe: dict[int, RigaImpresa] = {}
+        for r in (imp.get("righe") or []):
+            try:
+                numero = int(r.get("numero"))
+            except (TypeError, ValueError):
+                continue
+            prezzo = r.get("prezzo_unitario")
+            try:
+                prezzo = float(prezzo) if prezzo not in (None, "") else None
+            except (TypeError, ValueError):
+                prezzo = None
+            righe[numero] = RigaImpresa(prezzo_unitario=prezzo, nota=(r.get("nota") or ""))
+        totale_dichiarato = imp.get("totale_dichiarato")
+        try:
+            totale_dichiarato = float(totale_dichiarato) if totale_dichiarato not in (None, "") else None
+        except (TypeError, ValueError):
+            totale_dichiarato = None
+        imprese.append(ImpresaPreventivo(nome=nome, righe=righe, totale_dichiarato=totale_dichiarato))
+    if not imprese:
+        raise HTTPException(400, "Serve almeno un'impresa con un nome valido.")
+
+    try:
+        confronto = costruisci_confronto(voci, imprese)
+    except ConfrontoPreventiviError as exc:
+        raise HTTPException(422, str(exc))
+
+    job_id = uuid.uuid4().hex
+    if formato == "excel":
+        out_path = str(OUTPUT_DIR / f"{job_id}_confronto_preventivi.xlsx")
+        build_confronto_excel(confronto, meta, out_path)
+        return FileResponse(
+            out_path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename="confronto_preventivi.xlsx",
+        )
+    out_path = str(OUTPUT_DIR / f"{job_id}_confronto_preventivi.pdf")
+    build_confronto_pdf(confronto, meta, out_path)
+    return FileResponse(out_path, media_type="application/pdf", filename="confronto_preventivi.pdf")
 
 
 @app.get("/api/health")

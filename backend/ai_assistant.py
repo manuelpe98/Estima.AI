@@ -28,6 +28,18 @@ dell'utente (mai in automatico durante la generazione del computo):
    l'utente. Compito occasionale (una volta per progetto): stesso modello
    capace usato per la revisione.
 
+4. interpreta_preventivo_impresa — collegata alla funzione "Confronto
+   preventivi imprese" (vedi backend/confronto_preventivi_engine.py): il
+   cliente carica il preventivo ricevuto da un'impresa così com'è (PDF,
+   Excel o foto/scansione, in QUALSIASI formato/struttura l'impresa lo
+   abbia scritto — non un modulo predefinito), e questa funzione abbina ogni
+   prezzo trovato alla voce di computo corrispondente, restituendo un
+   elenco che l'utente rivede e corregge a mano PRIMA che venga generato il
+   file di confronto finale (quel passaggio successivo, invece, è puro
+   calcolo — zero chiamate AI). Usa il modello capace (Sonnet): abbinare un
+   documento a struttura libera a decine/centinaia di voci di computo è un
+   compito di comprensione, non una modifica strutturata su un dato solo.
+
 Ottimizzazione dei costi (richiesta esplicita dell'utente, qualità sempre al
 massimo per il compito):
 - modello economico per il compito frequente e semplice, modello più capace
@@ -195,6 +207,47 @@ dell'area è un passaggio successivo automatico.
 - Se le immagini non mostrano elementi esterni rilevanti (es. solo interni), restituisci comunque \
 "elementi" con quello che vedi di pertinente (es. materiali di pavimentazione/rivestimento \
 interni) e la "sintesi" lo dice chiaramente.
+- Non aggiungere MAI testo, markdown o commenti fuori dal JSON: solo l'oggetto JSON."""
+
+
+SYSTEM_PROMPT_CONFRONTO_PREVENTIVO = """Sei un computista esperto che aiuta un cliente a confrontare i \
+preventivi ricevuti da più imprese edili per lo stesso computo metrico. Ricevi (1) l'elenco delle voci del \
+computo di riferimento (numero, codice, descrizione, unità di misura, quantità) e (2) il testo o le \
+immagini del preventivo che UNA impresa ha inviato — in un formato completamente libero: può essere una \
+tabella con codici uguali o diversi da quelli del computo, un elenco a voce singola, un'offerta a corpo per \
+macrocategorie, un testo scorrevole, una scansione o foto scritta a mano.
+
+Il tuo compito è ABBINARE ogni prezzo che trovi nel preventivo alla voce di computo corrispondente, \
+scrivendo il prezzo UNITARIO (non l'importo totale di riga, che si ricava moltiplicando per la quantità già \
+nota) per ciascuna voce abbinata con ragionevole sicurezza.
+
+Rispondi SEMPRE E SOLO con un oggetto JSON valido, senza testo prima o dopo, con questa struttura esatta:
+{
+  "righe": [
+    {"numero": <numero della voce di computo>, "prezzo_unitario": <numero>|null, "nota": "<breve nota, o stringa vuota>"}
+  ],
+  "totale_dichiarato": <numero>|null,
+  "sintesi": "<una o due frasi di sintesi in italiano su come si è svolto l'abbinamento>"
+}
+
+Regole, IMPORTANTI:
+- Includi una riga in "righe" per OGNI voce del computo ricevuto, anche quelle che il preventivo non tocca \
+affatto (in quel caso "prezzo_unitario": null e "nota": "voce non presente in questo preventivo").
+- Non inventare MAI un prezzo unitario che non sia calcolabile con certezza dal testo/immagine ricevuto: se \
+il preventivo esprime un prezzo "a corpo" per un gruppo di voci senza scomporlo per singola voce, lascia \
+"prezzo_unitario": null per quelle voci e scrivi nella "nota" l'importo a corpo dichiarato e a quali voci si \
+riferisce (es. "incluso nel prezzo a corpo di 12.000 € per l'intero capitolo scavi, non scomponibile per \
+singola voce") — MAI ripartire tu stesso l'importo tra le voci in proporzione, anche se sembra un calcolo \
+semplice: è una stima che spetta all'utente decidere se fare, non un dato dichiarato dall'impresa.
+- Se il documento usa codici diversi da quelli del computo, abbina comunque per CONTENUTO (descrizione della \
+lavorazione), non per codice: due codici diversi possono descrivere la stessa lavorazione.
+- Se un prezzo nel preventivo non corrisponde con ragionevole sicurezza a nessuna voce del computo, non \
+forzare un abbinamento: ometti quel prezzo (non esiste un posto dove metterlo) e segnalalo nella "sintesi" \
+generale, non in una "nota" di riga inventata.
+- "totale_dichiarato": il totale complessivo del preventivo, SOLO se l'impresa lo scrive esplicitamente da \
+qualche parte nel documento (es. "Totale offerta: 45.000 €"); altrimenti null — non calcolarlo tu sommando \
+le righe abbinate, verrà ricalcolato automaticamente e serve solo da controllo incrociato.
+- Quantità e prezzi sono sempre in euro. Un prezzo non può mai essere negativo.
 - Non aggiungere MAI testo, markdown o commenti fuori dal JSON: solo l'oggetto JSON."""
 
 
@@ -570,4 +623,192 @@ def analizza_render(image_paths: list[str], prospetti_pdf_path: str | None = Non
         "immagini_analizzate": len(image_paths[:_MAX_RENDER_IMAGES]) - len(scartate),
         "immagini_scartate": scartate,
         "prospetto_incluso": prospetto_incluso,
+    }
+
+
+# --- Interpretazione preventivi imprese (confronto prezzi) ------------------
+
+# Numero massimo di pagine PDF rasterizzate per la visione, se il testo non è
+# estraibile (scansione/foto): stesso ordine di grandezza di _MAX_RENDER_IMAGES,
+# oltre non aggiunge affidabilità ma allunga costo e tempo.
+_MAX_PAGINE_PREVENTIVO = 6
+# Sotto questa soglia di caratteri, il testo estratto da un PDF è considerato
+# "non significativo" (probabile scansione/immagine senza livello di testo):
+# si passa alla visione invece di mandare pochi caratteri di rumore all'AI.
+_MIN_CARATTERI_TESTO_PDF = 120
+# Numero massimo di righe/celle lette da un preventivo in Excel, per tenere
+# sotto controllo i token in ingresso anche per fogli molto grandi.
+_MAX_RIGHE_EXCEL_PREVENTIVO = 400
+_ESTENSIONI_IMMAGINE = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tiff")
+
+
+def _estrai_testo_excel(path: str) -> str:
+    import openpyxl
+    wb = openpyxl.load_workbook(path, data_only=True)
+    righe_testo = []
+    for ws in wb.worksheets:
+        for row in ws.iter_rows(max_row=_MAX_RIGHE_EXCEL_PREVENTIVO):
+            valori = [str(c.value).strip() for c in row if c.value not in (None, "")]
+            if valori:
+                righe_testo.append(" | ".join(valori))
+        if len(righe_testo) >= _MAX_RIGHE_EXCEL_PREVENTIVO:
+            righe_testo.append("[…troncato: foglio più lungo del limite letto…]")
+            break
+    return "\n".join(righe_testo)
+
+
+def _prepara_contenuto_preventivo(file_path: str) -> tuple[str | None, list[tuple[str, str]]]:
+    """Ritorna (testo, immagini) a partire dal file di preventivo caricato,
+    scegliendo automaticamente l'estrazione più adatta: testo per Excel/PDF
+    con livello di testo selezionabile, visione (immagini) per PDF scansionati
+    o foto dirette. Ritorna sempre almeno uno dei due non vuoto, altrimenti
+    solleva AiAssistantError (formato non gestito o file illeggibile)."""
+    ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+    immagini: list[tuple[str, str]] = []
+
+    if ext in ("xlsx", "xlsm", "xls"):
+        try:
+            testo = _estrai_testo_excel(file_path)
+        except Exception as exc:
+            raise AiAssistantError(f"Impossibile leggere il file Excel del preventivo: {exc}") from exc
+        if not testo.strip():
+            raise AiAssistantError("Il file Excel caricato risulta vuoto.")
+        return testo, immagini
+
+    if f".{ext}" in _ESTENSIONI_IMMAGINE:
+        enc = _encode_image_for_vision(file_path)
+        if not enc:
+            raise AiAssistantError("L'immagine caricata non è leggibile (formati supportati: JPEG, PNG, WEBP).")
+        immagini.append(enc)
+        return None, immagini
+
+    if ext == "pdf":
+        testo = ""
+        try:
+            import fitz
+            with fitz.open(file_path) as doc:
+                testo = "\n".join(p.get_text() for p in doc)
+        except Exception:
+            testo = ""
+        if len(testo.strip()) >= _MIN_CARATTERI_TESTO_PDF:
+            return testo, immagini
+        # Testo insufficiente: probabile scansione/foto — rasterizza le prime pagine per la visione.
+        try:
+            import fitz
+            with fitz.open(file_path) as doc:
+                n_pagine = min(doc.page_count, _MAX_PAGINE_PREVENTIVO)
+        except Exception as exc:
+            raise AiAssistantError(f"Impossibile aprire il PDF del preventivo: {exc}") from exc
+        for i in range(n_pagine):
+            enc = _encode_image_for_vision(file_path, page_index=i)
+            if enc:
+                immagini.append(enc)
+        if not immagini:
+            raise AiAssistantError(
+                "Il PDF caricato non contiene testo selezionabile né pagine leggibili come immagine: "
+                "verifica che il file non sia corrotto."
+            )
+        return None, immagini
+
+    raise AiAssistantError(
+        f"Formato file non supportato per il preventivo ('.{ext}'): carica un PDF, un file Excel "
+        "(.xlsx) o una foto/scansione (JPEG, PNG)."
+    )
+
+
+def interpreta_preventivo_impresa(voci_riferimento: list[dict], nome_impresa: str, file_path: str) -> dict:
+    """voci_riferimento: lista di dict con almeno numero/codice/descrizione/unita_misura/quantita
+    (le voci del computo di riferimento — vedi confronto_preventivi_engine.leggi_computo_base).
+    nome_impresa: nome dell'impresa che ha inviato il preventivo, solo per il contesto del prompt.
+    file_path: percorso del file di preventivo caricato così com'è (PDF, Excel o immagine).
+
+    Ritorna sempre un dict con le chiavi righe/totale_dichiarato/sintesi — mai un'eccezione
+    silenziosa: in caso di problemi solleva AiAssistantError. Il risultato è SEMPRE da rivedere e
+    correggere dall'utente prima di essere usato per generare il file di confronto finale (vedi
+    l'endpoint /api/confronto/interpreta-preventivo e il commento in cima a questo file)."""
+    if not voci_riferimento:
+        raise AiAssistantError("Nessuna voce di computo di riferimento: carica prima il computo base.")
+
+    testo, immagini = _prepara_contenuto_preventivo(file_path)
+
+    client = _client()
+    voci_compatte = [{
+        "numero": v.get("numero"),
+        "codice": v.get("codice", ""),
+        "descrizione": v.get("descrizione", ""),
+        "unita_misura": v.get("unita_misura", ""),
+        "quantita": v.get("quantita", 0),
+    } for v in voci_riferimento]
+
+    content: list[dict] = [{
+        "type": "text",
+        "text": (
+            f"Voci del computo di riferimento ({len(voci_compatte)} righe):\n"
+            f"{json.dumps(voci_compatte, ensure_ascii=False)}\n\n"
+            f"Preventivo ricevuto dall'impresa \"{nome_impresa}\":"
+        ),
+    }]
+    if testo:
+        # Limite di sicurezza sui caratteri di testo inviati: un preventivo non dovrebbe mai
+        # avvicinarsi a questa soglia, è solo una protezione contro un file anomalo.
+        content.append({"type": "text", "text": testo[:60000]})
+    for media_type, data_b64 in immagini:
+        content.append({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data_b64}})
+    if immagini:
+        content.append({"type": "text", "text": "[le immagini sopra sono le pagine del preventivo ricevuto]"})
+
+    try:
+        resp = client.messages.create(
+            model=MODEL_REVISIONE,
+            max_tokens=4000,
+            system=_system_block(SYSTEM_PROMPT_CONFRONTO_PREVENTIVO),
+            messages=[{"role": "user", "content": content}],
+        )
+    except Exception as exc:
+        raise AiAssistantError(f"Errore nel contattare il servizio AI: {exc}") from exc
+
+    raw = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    data = _extract_json(raw)
+
+    numeri_validi = {v["numero"] for v in voci_compatte}
+    righe_raw = data.get("righe")
+    per_numero: dict[int, dict] = {}
+    if isinstance(righe_raw, list):
+        for r in righe_raw:
+            if not isinstance(r, dict):
+                continue
+            try:
+                numero = int(r.get("numero"))
+            except (TypeError, ValueError):
+                continue
+            if numero not in numeri_validi:
+                continue
+            prezzo = r.get("prezzo_unitario")
+            try:
+                prezzo = float(prezzo) if prezzo is not None else None
+            except (TypeError, ValueError):
+                prezzo = None
+            if prezzo is not None and prezzo < 0:
+                prezzo = None
+            per_numero[numero] = {
+                "numero": numero,
+                "prezzo_unitario": prezzo,
+                "nota": (r.get("nota") or "").strip(),
+            }
+    # Garantisce una riga per OGNI voce del computo, anche se il modello ne ha
+    # omessa qualcuna: meglio "non quotata" esplicito che una voce mancante in
+    # tabella senza spiegazione.
+    righe = [per_numero.get(v["numero"]) or {"numero": v["numero"], "prezzo_unitario": None, "nota": ""}
+             for v in voci_compatte]
+
+    totale_dichiarato = data.get("totale_dichiarato")
+    try:
+        totale_dichiarato = float(totale_dichiarato) if totale_dichiarato is not None else None
+    except (TypeError, ValueError):
+        totale_dichiarato = None
+
+    return {
+        "righe": righe,
+        "totale_dichiarato": totale_dichiarato,
+        "sintesi": (data.get("sintesi") or "").strip(),
     }
