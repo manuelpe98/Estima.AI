@@ -812,3 +812,99 @@ def interpreta_preventivo_impresa(voci_riferimento: list[dict], nome_impresa: st
         "totale_dichiarato": totale_dichiarato,
         "sintesi": (data.get("sintesi") or "").strip(),
     }
+
+
+# --- Interpretazione del computo BASE in Excel, quando non è quello di Estima ----------------
+
+SYSTEM_PROMPT_COMPUTO_BASE = """Sei un computista esperto che legge un computo metrico in formato Excel la \
+cui struttura non è nota in anticipo: può avere colonne con nomi diversi da quelli standard, in ordine \
+diverso, con righe di intestazione di categoria/capitolo mescolate alle voci, sottototali intermedi, righe \
+vuote di formattazione. Il tuo compito è estrarre l'elenco delle voci di computo VERE E PROPRIE (quelle con \
+una quantità numerica misurabile), scartando tutto il resto.
+
+Rispondi SEMPRE E SOLO con un oggetto JSON valido, senza testo prima o dopo, con questa struttura esatta:
+{
+  "voci": [
+    {"numero": <int>, "codice": "<string>", "categoria": "<string>", "descrizione": "<string>", \
+"unita_misura": "<string>", "quantita": <numero>}
+  ]
+}
+
+Regole:
+- Includi SOLO righe che rappresentano una voce di computo con una quantità numerica leggibile: NON \
+includere intestazioni di categoria/capitolo (usale invece come valore di "categoria" per le voci che le \
+seguono, finché non cambia), righe di subtotale/totale, righe vuote o di sola formattazione.
+- "numero": se il file ha già una numerazione esplicita usala; altrimenti numera tu le voci in ordine \
+progressivo a partire da 1.
+- "codice" e "categoria": stringa vuota se il file non li riporta per quella voce.
+- Non inventare MAI una quantità: se una riga non ha un valore numerico chiaramente leggibile come \
+quantità, non includerla nell'elenco.
+- Non aggiungere MAI testo, markdown o commenti fuori dal JSON: solo l'oggetto JSON."""
+
+
+def interpreta_computo_base_excel(file_path: str) -> list[dict]:
+    """Ultima risorsa quando confronto_preventivi_engine.leggi_computo_base()
+    non riesce a riconoscere meccanicamente le colonne di un computo metrico
+    caricato come base del confronto (vedi il commento in cima a quel file):
+    invece di rifiutare il file, lo si fa leggere a un'AI. A differenza del
+    riconoscimento meccanico (gratuito), QUESTA funzione consuma crediti/
+    quota AI, perché richiede comprensione del contenuto e non un semplice
+    confronto di intestazioni — vedi l'endpoint /api/confronto/carica-base
+    in backend/main.py per come viene autorizzata/fatturata.
+
+    Ritorna sempre una lista di voci (numero/codice/categoria/descrizione/
+    unita_misura/quantita) — mai un'eccezione silenziosa: in caso di
+    problemi solleva AiAssistantError."""
+    testo = _estrai_testo_excel(file_path)
+    if not testo.strip():
+        raise AiAssistantError("Il file Excel caricato risulta vuoto.")
+
+    client = _client()
+    content = [{
+        "type": "text",
+        "text": f"Contenuto del foglio Excel (una riga per ogni riga non vuota, celle separate da ' | '):\n{testo[:60000]}",
+    }]
+    try:
+        resp = client.messages.create(
+            model=MODEL_REVISIONE,
+            max_tokens=4000,
+            system=_system_block(SYSTEM_PROMPT_COMPUTO_BASE),
+            messages=[{"role": "user", "content": content}],
+        )
+    except Exception as exc:
+        raise AiAssistantError(f"Errore nel contattare il servizio AI: {exc}") from exc
+
+    raw = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    data = _extract_json(raw)
+
+    voci_raw = data.get("voci")
+    voci: list[dict] = []
+    if isinstance(voci_raw, list):
+        for i, v in enumerate(voci_raw, start=1):
+            if not isinstance(v, dict):
+                continue
+            descrizione = (v.get("descrizione") or "").strip()
+            if not descrizione:
+                continue
+            try:
+                quantita = float(v.get("quantita"))
+            except (TypeError, ValueError):
+                continue
+            try:
+                numero = int(v.get("numero"))
+            except (TypeError, ValueError):
+                numero = i
+            voci.append({
+                "numero": numero,
+                "codice": (v.get("codice") or "").strip(),
+                "categoria": (v.get("categoria") or "").strip(),
+                "descrizione": descrizione,
+                "unita_misura": (v.get("unita_misura") or "").strip(),
+                "quantita": quantita,
+            })
+    if not voci:
+        raise AiAssistantError(
+            "Non sono riuscito a riconoscere righe di computo valide (con descrizione e quantità) in "
+            "questo file."
+        )
+    return voci

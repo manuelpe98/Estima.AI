@@ -4,10 +4,20 @@ confronto_engine.py (che confronta stato di fatto/stato di progetto di un
 rilievo — nome simile, scopo completamente diverso, non riutilizzabile qui).
 
 Flusso pensato:
-1. Il cliente carica il file 'computo_metrico.xlsx' già scaricato da Estima
-   (quello generato da backend/output/excel_generator.py) come base di
-   riferimento — leggi_computo_base() lo rilegge in modo puramente meccanico
-   (nessuna AI: è già un file strutturato prodotto da Estima stessa).
+1. Il cliente carica un computo metrico in Excel come base di riferimento —
+   NON deve necessariamente essere il file generato da Estima (richiesta
+   esplicita di Franco: "basta che sia un file Excel", qualunque struttura di
+   colonne abbia): leggi_computo_base() prova prima un riconoscimento
+   meccanico ed economico delle intestazioni di colonna più comuni nei
+   computi metrici italiani (funziona per il file di Estima e per la
+   maggior parte dei computi fatti a mano o esportati da altri programmi,
+   zero chiamate AI). Se questo tentativo fallisce — struttura davvero
+   fuori dagli schemi — il chiamante (vedi l'endpoint
+   /api/confronto/carica-base in backend/main.py) ripiega su
+   ai_assistant.interpreta_computo_base_excel, che legge il foglio con
+   un'AI: QUESTO fallback consuma crediti/quota AI, perché a differenza del
+   riconoscimento meccanico richiede comprensione del contenuto, non solo
+   un confronto di intestazioni.
 2. Per ciascuna impresa, il cliente carica il preventivo ricevuto così com'è
    (PDF, Excel o foto/scansione, in QUALSIASI formato/struttura l'impresa lo
    abbia scritto): un'AI (vedi ai_assistant.interpreta_preventivo_impresa)
@@ -26,93 +36,138 @@ Flusso pensato:
 from __future__ import annotations
 from dataclasses import dataclass, field
 
+import unicodedata
+
 import openpyxl
 
-# Stesse intestazioni di colonna scritte da backend/output/excel_generator.py
-# (COLUMNS): la ricerca della riga di intestazione è per CONTENUTO, non per
-# numero di riga fisso, perché quella riga si sposta in base a quante note
-# metodologiche precedono la tabella nel file originale.
-_COLONNE_ATTESE = ("N.", "Codice", "Descrizione")
 _MAX_RIGHE_RICERCA_INTESTAZIONE = 30
+
+# Riconoscimento delle intestazioni di colonna per SINONIMI, non per testo esatto: il file
+# caricato non deve necessariamente essere quello generato da Estima (richiesta esplicita di
+# Franco: "basta che sia un file Excel qualsiasi") — deve solo assomigliare a un normale computo
+# metrico italiano, con QUALUNQUE intestazione tra quelle più comuni nel settore (proprie di
+# Estima, di PriMus/altri software, o scritte a mano). Il confronto testuale è case-insensitive
+# e ignora spazi/punteggiatura di contorno (vedi _normalizza). "descrizione" e "quantita" sono le
+# uniche colonne davvero indispensabili: senza una descrizione non c'è voce da mostrare, senza una
+# quantità non è calcolabile alcun importo per il confronto.
+_SINONIMI_COLONNE: dict[str, tuple[str, ...]] = {
+    "numero": ("n.", "n°", "nr", "nr.", "num", "numero", "pos", "pos.", "voce", "n ord", "nrord"),
+    "codice": ("codice", "cod", "cod.", "tariffa", "art", "art.", "articolo", "codicetariffa"),
+    "categoria": ("categoria", "capitolo", "gruppo", "categoriadilavoro", "sezione"),
+    "descrizione": ("descrizione", "denominazione", "lavorazione", "designazione",
+                     "descrizionedeilavori", "descrizionelavorazione", "oggetto", "voce di computo",
+                     "vocedicomputo"),
+    "unita_misura": ("um", "u.m.", "unita", "unitadimisura", "unitàdimisura", "misura"),
+    "quantita": ("quantita", "quantità", "qta", "qta.", "qtà", "quant", "quant."),
+}
+
+
+def _normalizza(testo: str) -> str:
+    """minuscolo, senza accenti (NFKD + scarto dei segni diacritici) e senza punteggiatura/spazi:
+    così "Unità", "unita", "UNITA'" e "Unità " normalizzano tutti a "unita" e si abbinano allo
+    stesso sinonimo, invece di richiedere una variante accentata e una no per ogni voce."""
+    senza_accenti = "".join(
+        ch for ch in unicodedata.normalize("NFKD", testo.strip().lower()) if not unicodedata.combining(ch)
+    )
+    return "".join(ch for ch in senza_accenti if ch.isalnum())
+
+
+_SINONIMI_NORMALIZZATI = {
+    ruolo: {_normalizza(s) for s in sinonimi} for ruolo, sinonimi in _SINONIMI_COLONNE.items()
+}
 
 
 class ConfrontoPreventiviError(ValueError):
     """File di computo base non riconosciuto o vuoto: mostrata così com'è
-    all'utente, mai propagata come errore tecnico generico."""
+    all'utente, mai propagata come errore tecnico generico (salvo il fallback
+    AI gestito dall'endpoint, vedi il commento in cima al file)."""
+
+
+def _trova_intestazioni(ws) -> tuple[int, dict[str, int]] | None:
+    """Cerca, tra le prime righe del foglio, quella che assomiglia di più a
+    un'intestazione di colonne di computo metrico: per ogni riga candidata
+    associa ad ogni RUOLO (numero/codice/categoria/descrizione/unita_misura/
+    quantita) la prima colonna il cui testo corrisponde a uno dei sinonimi
+    noti. Ritorna (indice di riga, {ruolo: colonna}) della prima riga che
+    copre almeno descrizione+quantita, o None se nessuna riga qualifica."""
+    max_col = min(ws.max_column or 12, 30)
+    for r in range(1, min(ws.max_row or 1, _MAX_RIGHE_RICERCA_INTESTAZIONE) + 1):
+        ruoli: dict[str, int] = {}
+        for c in range(1, max_col + 1):
+            v = ws.cell(row=r, column=c).value
+            if not isinstance(v, str) or not v.strip():
+                continue
+            chiave = _normalizza(v)
+            for ruolo, sinonimi in _SINONIMI_NORMALIZZATI.items():
+                if ruolo not in ruoli and chiave in sinonimi:
+                    ruoli[ruolo] = c
+        if "descrizione" in ruoli and "quantita" in ruoli:
+            return r, ruoli
+    return None
 
 
 def leggi_computo_base(path: str) -> list[dict]:
-    """Rilegge un file 'computo_metrico.xlsx' generato da Estima (qualunque
-    versione/lingua delle note che lo precedono) e ne estrae le voci
-    essenziali per il confronto: numero, codice, categoria, descrizione,
-    unità di misura, quantità. Il prezzo unitario del computo originale non
-    serve al confronto (quello che conta qui sono i prezzi DELLE IMPRESE) e
-    non viene riletto. Solleva ConfrontoPreventiviError con un messaggio
-    comprensibile se il file non ha la struttura attesa."""
+    """Rilegge un computo metrico in Excel — di Estima o di qualunque altra
+    provenienza — e ne estrae le voci essenziali per il confronto: numero,
+    codice, categoria, descrizione, unità di misura, quantità. Il prezzo
+    unitario del computo originale non serve al confronto (quello che conta
+    qui sono i prezzi DELLE IMPRESE) e non viene riletto. Puro riconoscimento
+    meccanico delle intestazioni di colonna (vedi _trova_intestazioni): se il
+    file ha una struttura troppo fuori dagli schemi per essere riconosciuta
+    così, solleva ConfrontoPreventiviError — il chiamante decide se e come
+    ripiegare sull'interpretazione AI (vedi il commento in cima al file)."""
     try:
         wb = openpyxl.load_workbook(path, data_only=True)
     except Exception as exc:
         raise ConfrontoPreventiviError(
             f"Il file '{path.rsplit('/', 1)[-1]}' non è un file Excel leggibile: {exc}"
         ) from exc
-    ws = wb["Computo metrico"] if "Computo metrico" in wb.sheetnames else wb.active
 
-    header_row = None
-    intestazioni: dict[str, int] = {}
-    max_col = min(ws.max_column or 12, 20)
-    for r in range(1, min(ws.max_row or 1, _MAX_RIGHE_RICERCA_INTESTAZIONE) + 1):
-        riga = {}
-        for c in range(1, max_col + 1):
-            v = ws.cell(row=r, column=c).value
-            if isinstance(v, str) and v.strip():
-                riga[v.strip()] = c
-        if all(col in riga for col in _COLONNE_ATTESE):
-            header_row = r
-            intestazioni = riga
+    fogli_da_provare = [wb["Computo metrico"]] if "Computo metrico" in wb.sheetnames else list(wb.worksheets)
+    trovato = None
+    ws = None
+    for foglio in fogli_da_provare:
+        trovato = _trova_intestazioni(foglio)
+        if trovato:
+            ws = foglio
             break
-    if header_row is None:
+    if not trovato or ws is None:
         raise ConfrontoPreventiviError(
-            "Il file caricato non sembra un computo metrico esportato da Estima.AI: non trovo le colonne "
-            "'N.', 'Codice', 'Descrizione'. Carica il file .xlsx scaricato con il pulsante 'Excel' dal "
-            "passaggio di revisione del computo."
+            "Non riesco a riconoscere automaticamente le colonne di questo file (mi servono almeno una "
+            "colonna 'Descrizione' e una 'Quantità', con questi o nomi equivalenti)."
         )
-
-    def _col(nome: str, obbligatoria: bool = True) -> int | None:
-        idx = intestazioni.get(nome)
-        if idx is None and obbligatoria:
-            raise ConfrontoPreventiviError(f"Colonna '{nome}' mancante nel file caricato.")
-        return idx
-
-    col_n = _col("N.")
-    col_codice = _col("Codice")
-    col_categoria = _col("Categoria", obbligatoria=False)
-    col_descrizione = _col("Descrizione")
-    col_um = _col("U.M.", obbligatoria=False)
-    col_quantita = _col("Quantità", obbligatoria=False)
+    header_row, ruoli = trovato
 
     voci: list[dict] = []
+    numero_auto = 0
     for r in range(header_row + 1, (ws.max_row or header_row) + 1):
-        n = ws.cell(row=r, column=col_n).value
-        if n in (None, ""):
-            continue
-        try:
-            numero = int(n)
-        except (TypeError, ValueError):
-            continue
-        descrizione = str(ws.cell(row=r, column=col_descrizione).value or "").strip()
+        descrizione = str(ws.cell(row=r, column=ruoli["descrizione"]).value or "").strip()
         if not descrizione:
             continue
+        quantita_raw = ws.cell(row=r, column=ruoli["quantita"]).value
         try:
-            quantita = float(ws.cell(row=r, column=col_quantita).value or 0) if col_quantita else 0.0
+            quantita = float(quantita_raw)
         except (TypeError, ValueError):
-            quantita = 0.0
+            # Riga senza una quantità numerica leggibile (es. intestazione di categoria,
+            # sottototale, riga vuota di formattazione): non è una voce di computo vera e
+            # propria, la si salta invece di inserirla con quantità 0 (che falserebbe il
+            # confronto facendo sembrare "non quotata" una voce che in realtà non esiste).
+            continue
+        numero_auto += 1
+        numero = numero_auto
+        if "numero" in ruoli:
+            try:
+                numero = int(ws.cell(row=r, column=ruoli["numero"]).value)
+            except (TypeError, ValueError):
+                pass
         voci.append({
             "numero": numero,
-            "codice": str(ws.cell(row=r, column=col_codice).value or "").strip(),
-            "categoria": (str(ws.cell(row=r, column=col_categoria).value or "").strip()
-                          if col_categoria else ""),
+            "codice": str(ws.cell(row=r, column=ruoli["codice"]).value or "").strip() if "codice" in ruoli else "",
+            "categoria": (str(ws.cell(row=r, column=ruoli["categoria"]).value or "").strip()
+                          if "categoria" in ruoli else ""),
             "descrizione": descrizione,
-            "unita_misura": str(ws.cell(row=r, column=col_um).value or "").strip() if col_um else "",
+            "unita_misura": (str(ws.cell(row=r, column=ruoli["unita_misura"]).value or "").strip()
+                              if "unita_misura" in ruoli else ""),
             "quantita": quantita,
         })
 

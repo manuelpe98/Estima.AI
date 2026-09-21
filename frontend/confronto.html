@@ -721,10 +721,12 @@ un unico file di confronto, in Excel e PDF, con i totali per ogni impresa affian
     dopo l'interpretazione compare una tabella dove puoi correggere a mano qualunque prezzo o nota. Questo
     passaggio richiede un account connesso e consuma crediti/quota AI (una chiamata per ogni preventivo
     interpretato) — generare il file di confronto finale, invece, è sempre gratuito, quante volte vuoi.</p>
-    <label>Preventivi da confrontare (seleziona più file insieme: uno per ogni impresa)</label>
-    <input type="file" id="fileImpreseMultipli" accept=".pdf,.xlsx,.xls,.jpg,.jpeg,.png,.webp" multiple />
+    <div class="genera-azioni" style="margin-bottom:.8rem">
+      <button type="button" id="btnCaricaPreventivi">📎 Carica preventivi (uno o più file insieme)</button>
+      <button type="button" class="secondary small-add" id="btnAggiungiImpresa">+ Aggiungi un'impresa alla volta</button>
+    </div>
+    <input type="file" id="fileImpreseMultipli" accept=".pdf,.xlsx,.xls,.jpg,.jpeg,.png,.webp" multiple style="display:none" />
     <div id="impreseWrap"></div>
-    <button type="button" class="secondary small-add" id="btnAggiungiImpresa">+ Aggiungi un'altra impresa</button>
   </div>
 
   <div class="card" id="sezioneGenera" style="display:none">
@@ -834,6 +836,10 @@ function aggiungiImpresa(fileIniziale) {
   div.querySelector(".impBtnInterpreta").addEventListener("click", () => interpretaImpresa(id));
   return id;
 }
+
+document.getElementById("btnCaricaPreventivi").addEventListener("click", () => {
+  document.getElementById("fileImpreseMultipli").click();
+});
 
 document.getElementById("fileImpreseMultipli").addEventListener("change", (e) => {
   const files = Array.from(e.target.files || []);

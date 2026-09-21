@@ -55,7 +55,8 @@ from .acustica_engine import extract_acustica_reference
 from .relazione_tecnica_engine import extract_relazione_tecnica
 from .elevation_engine import extract_elevation_bands
 from .ai_assistant import (
-    interpreta_istruzione, revisiona_computo, analizza_render, interpreta_preventivo_impresa, AiAssistantError,
+    interpreta_istruzione, revisiona_computo, analizza_render, interpreta_preventivo_impresa,
+    interpreta_computo_base_excel, AiAssistantError,
 )
 from .notifiche_email import invia_email
 from .confronto_preventivi_engine import (
@@ -238,6 +239,11 @@ COSTO_CREDITI = {
     # riferimento più il documento libero dell'impresa, con lo stesso modello capace usato per
     # la revisione — costo allineato a quello, non a un'azione riga-per-riga.
     "ai_interpreta_preventivo": int(os.environ.get("ESTIMA_COSTO_INTERPRETA_PREVENTIVO", "3")),
+    # Fallback SOLO quando il computo base caricato per il confronto preventivi non ha una
+    # struttura di colonne riconoscibile meccanicamente (vedi confronto_preventivi_engine.py):
+    # più leggero della revisione/interpretazione preventivo, perché legge un solo file già
+    # tabellare (Excel), non deve incrociarlo con nient'altro.
+    "ai_interpreta_computo_base": int(os.environ.get("ESTIMA_COSTO_INTERPRETA_COMPUTO_BASE", "2")),
 }
 # Unico pacchetto di crediti in vendita per ora (si può estendere a più
 # pacchetti in futuro): quantità e prezzo si cambiano da qui/da variabile
@@ -287,6 +293,7 @@ PESO_QUOTA_ABBONAMENTO = {
     "ai_analisi_render": int(os.environ.get("ESTIMA_PESO_ABBONAMENTO_RENDER", "3")),
     "ai_revisione_computo": int(os.environ.get("ESTIMA_PESO_ABBONAMENTO_REVISIONE", "8")),
     "ai_interpreta_preventivo": int(os.environ.get("ESTIMA_PESO_ABBONAMENTO_PREVENTIVO", "8")),
+    "ai_interpreta_computo_base": int(os.environ.get("ESTIMA_PESO_ABBONAMENTO_COMPUTO_BASE", "5")),
 }
 
 # --- Periodo di prova gratuita ----------------------------------------------
@@ -316,6 +323,7 @@ PESO_COSTO_REALE_PROVA = {
     "ai_analisi_render": int(os.environ.get("ESTIMA_PESO_PROVA_RENDER", "3")),
     "ai_revisione_computo": int(os.environ.get("ESTIMA_PESO_PROVA_REVISIONE", "8")),
     "ai_interpreta_preventivo": int(os.environ.get("ESTIMA_PESO_PROVA_PREVENTIVO", "8")),
+    "ai_interpreta_computo_base": int(os.environ.get("ESTIMA_PESO_PROVA_COMPUTO_BASE", "5")),
 }
 PROVA_TETTO_SETTIMANALE_EUR = float(os.environ.get("ESTIMA_PROVA_TETTO_SETTIMANALE_EUR", "5.0"))
 PROVA_COSTO_REALE_UNITA_EUR = float(os.environ.get("ESTIMA_COSTO_REALE_UNITA_EUR", "0.01"))
@@ -1701,19 +1709,54 @@ async def api_revisiona_computo(request: Request, payload: dict = Body(...)):
 
 
 @app.post("/api/confronto/carica-base")
-async def api_confronto_carica_base(file: UploadFile = File(...)):
+async def api_confronto_carica_base(request: Request, file: UploadFile = File(...)):
     """Prima fase del confronto preventivi (vedi il commento in cima a
-    confronto_preventivi_engine.py per l'intero flusso): rilegge il file
-    'computo_metrico.xlsx' già scaricato da Estima e ne estrae le voci
-    essenziali da usare come base del confronto. Pura lettura meccanica di un
-    file che Estima stessa ha generato: nessun account richiesto, nessuna
-    chiamata AI."""
+    confronto_preventivi_engine.py per l'intero flusso): rilegge un computo
+    metrico in Excel — NON deve necessariamente essere quello generato da
+    Estima, va bene qualunque file Excel con una struttura di computo
+    riconoscibile — e ne estrae le voci essenziali da usare come base del
+    confronto.
+
+    Prova prima il riconoscimento meccanico delle intestazioni di colonna
+    (leggi_computo_base: gratuito, nessun account richiesto). Solo se questo
+    fallisce perché il file ha una struttura troppo fuori dagli schemi,
+    ripiega sull'interpretazione AI (interpreta_computo_base_excel): questo
+    SECONDO tentativo richiede un account connesso con abbonamento attivo
+    (entro la quota) o crediti sufficienti (401/402/429, vedi
+    _autorizza_azione_ai), esattamente come /api/confronto/interpreta-preventivo."""
     path = _save_upload(file)
+    messaggio_euristica: str | None = None
     try:
         voci = leggi_computo_base(path)
-    except ConfrontoPreventiviError as exc:
-        raise HTTPException(422, str(exc))
-    return {"voci": voci}
+        return {"voci": voci, "interpretazione_ai": False}
+    except ConfrontoPreventiviError as exc_heuristica:
+        # Il nome dell'eccezione non sopravvive fuori dal blocco except (Python lo derefenzia
+        # automaticamente alla fine del blocco): il messaggio va salvato qui, non riletto dopo.
+        messaggio_euristica = str(exc_heuristica)
+
+    conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
+    utente = _utente_sessione(request)
+    identificativo = _identificativo_richiesta(request, utente)
+    _verifica_limite_ai(conn, identificativo)
+    try:
+        binario = _autorizza_azione_ai(conn, utente, "ai_interpreta_computo_base")
+    except HTTPException as exc_auth:
+        raise HTTPException(
+            exc_auth.status_code,
+            f"{messaggio_euristica} Il file non ha una struttura riconoscibile automaticamente: ho provato a "
+            f"interpretarlo con l'AI, ma {exc_auth.detail}",
+        )
+    try:
+        voci = interpreta_computo_base_excel(path)
+    except AiAssistantError as exc_ai:
+        if binario == "crediti":
+            accounts_db.aggiungi_crediti(conn, utente["id"], COSTO_CREDITI["ai_interpreta_computo_base"])
+        return JSONResponse(status_code=422, content={
+            "error": f"{messaggio_euristica} Ho provato a interpretarlo con l'AI ma non ci sono riuscito: {exc_ai}"})
+    accounts_db.registra_utilizzo(
+        conn, identificativo, "ai_interpreta_computo_base", utente_id=utente["id"] if utente else None,
+    )
+    return {"voci": voci, "interpretazione_ai": True}
 
 
 @app.post("/api/confronto/interpreta-preventivo")
