@@ -679,7 +679,7 @@ try {
   .genera-azioni { display: flex; gap: .6rem; flex-wrap: wrap; }
 </style>
 
-<p class="eyebrow">Studio Pè · Estima</p>
+<p class="eyebrow">Estima</p>
 <h1><span class="word">Confronto</span><span class="word">preventivi</span><span class="word">imprese</span></h1>
 <p class="lede"><small class="hint">Carica il computo metrico di riferimento e i preventivi ricevuti dalle
 imprese, ciascuno nel formato in cui te l'hanno mandato: Estima abbina i prezzi alle voci del computo e genera
@@ -697,7 +697,7 @@ un unico file di confronto, in Excel e PDF, con i totali per ogni impresa affian
     <div class="campi-progetto">
       <div>
         <label>Nome progetto (facoltativo, per l'intestazione del file)</label>
-        <input type="text" id="confrontoNomeProgetto" placeholder="es. Villa Maria Luca" />
+        <input type="text" id="confrontoNomeProgetto" placeholder="Se vuoto: nome del file di computo caricato" />
       </div>
       <div>
         <label>Committente (facoltativo)</label>
@@ -713,15 +713,18 @@ un unico file di confronto, in Excel e PDF, con i totali per ogni impresa affian
 
   <div class="card" id="sezioneImprese" style="display:none">
     <h3 style="margin-top:0">2. Preventivi delle imprese</h3>
-    <p class="hint">Per ogni impresa, scrivi il nome e carica il preventivo così com'è — PDF, Excel o anche
-    una foto/scansione — nel formato in cui te l'ha mandato: un'AI abbina automaticamente ogni prezzo alla
-    voce di computo corrispondente. <strong>Verifica sempre l'abbinamento prima di generare il file
-    finale</strong>: dopo l'interpretazione compare una tabella dove puoi correggere a mano qualunque prezzo o
-    nota. Questo passaggio richiede un account connesso e consuma crediti/quota AI (una chiamata per ogni
-    preventivo caricato) — generare il file di confronto finale, invece, è sempre gratuito, quante volte
-    vuoi.</p>
+    <p class="hint">Carica insieme i preventivi ricevuti — <strong>un file per ogni impresa, tutti in una
+    volta</strong> — così com'è ciascuno: PDF, Excel o anche una foto/scansione, nel formato in cui te l'hanno
+    mandato. Per ogni file caricato compare un riquadro con il nome dell'impresa (proposto dal nome del file,
+    modificabile) e il pulsante per interpretarlo: un'AI abbina automaticamente ogni prezzo alla voce di
+    computo corrispondente. <strong>Verifica sempre l'abbinamento prima di generare il file finale</strong>:
+    dopo l'interpretazione compare una tabella dove puoi correggere a mano qualunque prezzo o nota. Questo
+    passaggio richiede un account connesso e consuma crediti/quota AI (una chiamata per ogni preventivo
+    interpretato) — generare il file di confronto finale, invece, è sempre gratuito, quante volte vuoi.</p>
+    <label>Preventivi da confrontare (seleziona più file insieme: uno per ogni impresa)</label>
+    <input type="file" id="fileImpreseMultipli" accept=".pdf,.xlsx,.xls,.jpg,.jpeg,.png,.webp" multiple />
     <div id="impreseWrap"></div>
-    <button type="button" class="secondary small-add" id="btnAggiungiImpresa">+ Aggiungi impresa</button>
+    <button type="button" class="secondary small-add" id="btnAggiungiImpresa">+ Aggiungi un'altra impresa</button>
   </div>
 
   <div class="card" id="sezioneGenera" style="display:none">
@@ -740,10 +743,16 @@ un unico file di confronto, in Excel e PDF, con i totali per ogni impresa affian
 <script>
 const API = "";
 let confrontoVociBase = [];
+let confrontoNomeFileBase = ""; // nome del file di computo caricato (senza estensione), usato come nome
+                                 // progetto di riserva quando l'utente non ne scrive uno esplicitamente
 let confrontoImprese = []; // {id, righeById: Map(numero -> {prezzo_unitario, nota}), totaleDichiarato, interpretata}
 let confrontoImpreseSeq = 0;
 
 function confrontoEsc(s) { return String(s == null ? "" : s).replace(/</g, "&lt;"); }
+function confrontoNomeDaFile(file) {
+  if (!file) return "";
+  return file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+}
 function confrontoEur(v) {
   return Number(v).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 }
@@ -765,6 +774,7 @@ document.getElementById("btnCaricaBase").addEventListener("click", async () => {
     try { data = await res.json(); } catch (e) {}
     if (!res.ok) throw new Error(confrontoErrore(data, res.status));
     confrontoVociBase = data.voci;
+    confrontoNomeFileBase = confrontoNomeDaFile(file);
     msgEl.innerHTML = `<div class="msg ok">Computo caricato: ${confrontoVociBase.length} voci riconosciute.</div>`;
     const riep = document.getElementById("riepilogoBase");
     riep.style.display = "";
@@ -780,7 +790,7 @@ document.getElementById("btnCaricaBase").addEventListener("click", async () => {
   }
 });
 
-function aggiungiImpresa() {
+function aggiungiImpresa(fileIniziale) {
   const id = "imp-" + (++confrontoImpreseSeq);
   const impresa = { id, righeById: new Map(), totaleDichiarato: null, interpretata: false };
   confrontoImprese.push(impresa);
@@ -805,13 +815,31 @@ function aggiungiImpresa() {
     <div class="impTabellaWrap" style="display:none"></div>`;
   wrap.appendChild(div);
 
+  if (fileIniziale) {
+    // Precompila il file scelto nel selettore multiplo e propone il nome impresa dal nome del file
+    // (modificabile): l'utente può correggerlo prima di interpretare.
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(fileIniziale);
+      div.querySelector(".impFile").files = dt.files;
+    } catch (e) { /* browser molto vecchio senza DataTransfer: il file va selezionato a mano */ }
+    div.querySelector(".impNome").value = confrontoNomeDaFile(fileIniziale);
+  }
+
   div.querySelector(".impBtnRimuovi").addEventListener("click", () => {
     confrontoImprese = confrontoImprese.filter((i) => i.id !== id);
     div.remove();
     aggiornaVisibilitaGenera();
   });
   div.querySelector(".impBtnInterpreta").addEventListener("click", () => interpretaImpresa(id));
+  return id;
 }
+
+document.getElementById("fileImpreseMultipli").addEventListener("change", (e) => {
+  const files = Array.from(e.target.files || []);
+  files.forEach((f) => aggiungiImpresa(f));
+  e.target.value = ""; // permette di riselezionare/aggiungere altri file in un secondo momento
+});
 
 async function interpretaImpresa(id) {
   const impresa = confrontoImprese.find((i) => i.id === id);
@@ -923,8 +951,7 @@ function aggiornaVisibilitaGenera() {
   document.getElementById("sezioneGenera").style.display = almenoUna ? "" : "none";
 }
 
-document.getElementById("btnAggiungiImpresa").addEventListener("click", aggiungiImpresa);
-aggiungiImpresa(); // parte già con il primo riquadro pronto da compilare
+document.getElementById("btnAggiungiImpresa").addEventListener("click", () => aggiungiImpresa());
 
 async function scaricaConfronto(formato) {
   const msgEl = document.getElementById("msgGenera");
@@ -951,7 +978,8 @@ async function scaricaConfronto(formato) {
       body: JSON.stringify({
         formato, voci: confrontoVociBase, imprese,
         meta: {
-          nome_progetto: document.getElementById("confrontoNomeProgetto").value.trim() || "Progetto senza nome",
+          nome_progetto: document.getElementById("confrontoNomeProgetto").value.trim()
+            || confrontoNomeFileBase || "Progetto senza nome",
           committente: document.getElementById("confrontoCommittente").value.trim(),
         },
       }),
