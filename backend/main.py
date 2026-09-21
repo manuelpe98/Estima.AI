@@ -277,6 +277,37 @@ PESO_QUOTA_ABBONAMENTO = {
     "ai_revisione_computo": int(os.environ.get("ESTIMA_PESO_ABBONAMENTO_REVISIONE", "8")),
 }
 
+# --- Periodo di prova gratuita ----------------------------------------------
+# Fase temporanea PRIMA che crediti/abbonamenti diventino acquistabili per davvero
+# (serve prima mettere a posto la Partita IVA — vedi la discussione avuta sul
+# tema: un servizio a pagamento organizzato è "attività abituale" fin dal primo
+# incasso, indipendentemente da margine o fatturato, quindi finché quella parte
+# non è a posto non si può incassare nulla, nemmeno "a copertura costi"). In
+# questa fase ogni utente connesso ha accesso gratuito alle funzioni AI fino a
+# un tetto di spesa REALE (non di ricavo) a finestra mobile settimanale, per
+# limitare l'esposizione economica di chi paga le chiamate API durante il test.
+#
+# ESTIMA_MODALITA_PROVA=false disattiva questa modalità e fa tornare tutto al
+# binario normale crediti/abbonamento (comportamento pre-esistente, invariato):
+# quando succede, il codice sotto semplicemente non viene più interpellato.
+#
+# Il tetto è espresso in euro (ESTIMA_PROVA_TETTO_SETTIMANALE_EUR) e convertito
+# in "unità pesate" tramite una stima del costo reale per unità
+# (ESTIMA_COSTO_REALE_UNITA_EUR): stessi pesi relativi di PESO_QUOTA_ABBONAMENTO
+# (l'analisi render costa ~3 volte un'interpretazione commento, la revisione
+# computo ~8 volte), ma tenuti come costante SEPARATA apposta — ricalibrare la
+# quota degli abbonamenti a pagamento in futuro non deve spostare per sbaglio
+# anche il tetto di questa fase di prova, e viceversa.
+MODALITA_PROVA = os.environ.get("ESTIMA_MODALITA_PROVA", "true").strip().lower() in ("1", "true", "si", "sì", "yes")
+PESO_COSTO_REALE_PROVA = {
+    "ai_interpreta_commento": int(os.environ.get("ESTIMA_PESO_PROVA_INTERPRETA", "1")),
+    "ai_analisi_render": int(os.environ.get("ESTIMA_PESO_PROVA_RENDER", "3")),
+    "ai_revisione_computo": int(os.environ.get("ESTIMA_PESO_PROVA_REVISIONE", "8")),
+}
+PROVA_TETTO_SETTIMANALE_EUR = float(os.environ.get("ESTIMA_PROVA_TETTO_SETTIMANALE_EUR", "5.0"))
+PROVA_COSTO_REALE_UNITA_EUR = float(os.environ.get("ESTIMA_COSTO_REALE_UNITA_EUR", "0.01"))
+PROVA_TETTO_SETTIMANALE_UNITA = max(1, round(PROVA_TETTO_SETTIMANALE_EUR / PROVA_COSTO_REALE_UNITA_EUR))
+
 # Chiavi Stripe: STRIPE_SECRET_KEY per creare le sessioni di pagamento,
 # STRIPE_WEBHOOK_SECRET per verificare che gli avvisi di pagamento ricevuti su
 # /api/stripe/webhook arrivino davvero da Stripe (e non da chiunque altro
@@ -363,6 +394,23 @@ def _verifica_quota_abbonamento(conn, utente: dict, tipo: str) -> None:
         )
 
 
+def _verifica_tetto_prova(conn, utente: dict, tipo: str) -> None:
+    """Solleva 429 se l'utente ha esaurito il tetto di spesa reale settimanale (finestra
+    SCORREVOLE, non a calendario) previsto per il periodo di prova gratuita — vedi
+    PROVA_TETTO_SETTIMANALE_EUR più sopra per come è calcolato. Il messaggio non nomina MAI
+    la cifra in euro (la barra mostrata in interfaccia usa solo una percentuale): il tetto è
+    una tutela economica interna, non una cosa su cui l'utente deve ragionare in euro."""
+    peso = PESO_COSTO_REALE_PROVA.get(tipo, 1)
+    usati = accounts_db.utilizzi_pesati_da(conn, utente["id"], PESO_COSTO_REALE_PROVA, ore=24 * 7)
+    if usati + peso > PROVA_TETTO_SETTIMANALE_UNITA:
+        raise HTTPException(
+            429,
+            "Hai raggiunto il limite di utilizzo previsto per questo periodo di prova gratuita. "
+            "Riprova la prossima settimana: a breve arriveranno gli abbonamenti a pagamento con "
+            "quote più ampie.",
+        )
+
+
 def _autorizza_azione_ai(conn, utente: dict | None, tipo: str) -> str:
     """Verifica che l'utente possa eseguire l'azione AI 'tipo' e, se il binario è
     quello a consumo, scala SUBITO i crediti necessari, prima di chiamare l'AI — non
@@ -370,25 +418,30 @@ def _autorizza_azione_ai(conn, utente: dict | None, tipo: str) -> str:
     funzione partite quasi insieme non possono entrambe superare il controllo e
     portare il saldo sotto zero.
 
-    Ritorna 'abbonamento' o 'crediti' a seconda di quale binario ha autorizzato la
-    chiamata: il chiamante userà questo valore per sapere se, in caso di fallimento
+    Ritorna 'prova', 'abbonamento' o 'crediti' a seconda di quale binario ha autorizzato
+    la chiamata: il chiamante userà questo valore per sapere se, in caso di fallimento
     della chiamata AI, deve restituire crediti (binario a consumo — vedi i blocchi
-    'except AiAssistantError' più sotto) oppure non deve fare nulla (binario
-    abbonamento: la quota si ricalcola dalle righe in 'utilizzi', scritte SOLO dopo il
-    successo della chiamata — vedi registra_utilizzo in ciascun endpoint — quindi una
-    chiamata fallita non consuma mai quota da sola, senza bisogno di un rimborso
+    'except AiAssistantError' più sotto) oppure non deve fare nulla (binario prova o
+    abbonamento: la quota/il tetto si ricalcolano dalle righe in 'utilizzi', scritte SOLO
+    dopo il successo della chiamata — vedi registra_utilizzo in ciascun endpoint — quindi
+    una chiamata fallita non consuma mai quota da sola, senza bisogno di un rimborso
     esplicito).
 
-    Un abbonamento attivo ha SEMPRE la precedenza sui crediti: chi è abbonato non
-    consuma il proprio saldo crediti (che resta a disposizione se un domani
-    l'abbonamento viene annullato)."""
+    Finché MODALITA_PROVA è attiva, è l'UNICO binario controllato — crediti e abbonamento
+    restano congelati e non vengono nemmeno consultati, esattamente come i crediti restano
+    congelati quando è attivo un abbonamento — così quando la prova finisce si riparte da
+    dove ci si era fermati. Un abbonamento attivo ha comunque la precedenza sui crediti:
+    chi è abbonato non consuma il proprio saldo crediti (che resta a disposizione se un
+    domani l'abbonamento viene annullato)."""
     if not utente:
         raise HTTPException(
             401,
-            "Devi avere un account connesso, con un abbonamento attivo o crediti sufficienti, per usare "
-            "le funzioni AI (il resto del sito resta gratuito senza account). Attiva un abbonamento o "
-            "acquista un pacchetto di crediti dal tuo profilo.",
+            "Devi avere un account connesso per usare le funzioni AI (il resto del sito resta "
+            "gratuito senza account).",
         )
+    if MODALITA_PROVA:
+        _verifica_tetto_prova(conn, utente, tipo)
+        return "prova"
     if utente.get("abbonamento_stato") == "attivo":
         _verifica_quota_abbonamento(conn, utente, tipo)
         return "abbonamento"
@@ -581,6 +634,12 @@ async def api_account_utilizzo(utente: dict = Depends(richiedi_utente)):
     con la configurazione del server senza valori duplicati lato frontend."""
     conn = accounts_db.get_connection(ACCOUNTS_DB_PATH)
     riepilogo = accounts_db.riepilogo_utilizzo_mensile(conn, utente["id"])
+    prova = None
+    if MODALITA_PROVA:
+        prova = {
+            "usati": accounts_db.utilizzi_pesati_da(conn, utente["id"], PESO_COSTO_REALE_PROVA, ore=24 * 7),
+            "limite": PROVA_TETTO_SETTIMANALE_UNITA,
+        }
     quota_abbonamento = None
     if utente.get("abbonamento_stato") == "attivo":
         piano = PIANI_ABBONAMENTO.get(utente.get("abbonamento_piano") or "")
@@ -606,10 +665,12 @@ async def api_account_utilizzo(utente: dict = Depends(richiedi_utente)):
             "prezzo_centesimi": PREZZO_PACCHETTO_CENTESIMI,
             "valuta": VALUTA_PAGAMENTI,
         },
-        "acquisto_crediti_disponibile": bool(STRIPE_SECRET_KEY),
+        "acquisto_crediti_disponibile": bool(STRIPE_SECRET_KEY) and not MODALITA_PROVA,
         "piani_abbonamento": PIANI_ABBONAMENTO,
         "quota_abbonamento": quota_abbonamento,
-        "abbonamento_disponibile": bool(STRIPE_SECRET_KEY),
+        "abbonamento_disponibile": bool(STRIPE_SECRET_KEY) and not MODALITA_PROVA,
+        "modalita_prova": MODALITA_PROVA,
+        "prova": prova,
     }
 
 
@@ -623,6 +684,15 @@ async def api_crediti_acquista(request: Request, utente: dict = Depends(richiedi
     accreditati solo dopo che Stripe conferma il pagamento tramite il webhook
     (vedi /api/stripe/webhook), MAI a questo punto — questo endpoint apre
     solo la pagina di pagamento, non conferma nulla."""
+    if MODALITA_PROVA:
+        # Durante il periodo di prova gratuita non si può incassare nulla (vedi il
+        # commento su MODALITA_PROVA più sopra): questo endpoint resta bloccato finché
+        # la fase di test non finisce, anche se STRIPE_SECRET_KEY fosse configurata.
+        raise HTTPException(
+            403,
+            "Gli acquisti sono sospesi durante questo periodo di prova gratuita: stai già usando Estima.AI "
+            "senza costi. Gli abbonamenti a pagamento arriveranno a breve.",
+        )
     if not STRIPE_SECRET_KEY:
         raise HTTPException(
             503,
@@ -666,6 +736,12 @@ async def api_abbonamento_attiva(payload: dict = Body(...), utente: dict = Depen
     su Stripe, quantità/prezzo restano configurabili da qui/da variabile d'ambiente.
     L'abbonamento viene attivato lato server SOLO dopo la conferma via webhook (vedi
     /api/stripe/webhook), MAI a questo punto."""
+    if MODALITA_PROVA:
+        raise HTTPException(
+            403,
+            "Gli abbonamenti non sono ancora attivabili durante questo periodo di prova gratuita: stai già "
+            "usando Estima.AI senza costi. Arriveranno a breve.",
+        )
     if not STRIPE_SECRET_KEY:
         raise HTTPException(
             503,

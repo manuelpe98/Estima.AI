@@ -3226,6 +3226,28 @@ function estimaApriDropdown() {
     const w = document.getElementById("abbonamentoWrap");
     if (!w) return;
 
+    // Finché è attivo il periodo di prova gratuita (vedi MODALITA_PROVA lato server),
+    // crediti e abbonamenti restano sospesi: si nasconde il pulsante "Compra crediti" e
+    // si mostra solo una barra di utilizzo SENZA MAI citare una cifra in euro (il tetto
+    // è una tutela interna, non qualcosa su cui l'utente deve ragionare in euro) più un
+    // avviso chiaro che si tratta di un test e che gli abbonamenti arriveranno a breve.
+    if (dati.modalita_prova) {
+      const btnCreditiProva = document.getElementById("btnCompraCrediti");
+      if (btnCreditiProva) btnCreditiProva.style.display = "none";
+      const planEl = document.querySelector("#accountDropdown .account-plan");
+      if (planEl) planEl.innerHTML = "Periodo di prova gratuita";
+      const p = dati.prova || { usati: 0, limite: 1 };
+      const perc = Math.min(100, Math.round((p.usati / p.limite) * 100));
+      w.innerHTML = `
+        <div class="quota-bar-row">
+          <div class="quota-bar-label"><span>Utilizzo di questa settimana</span><span>${perc}%</span></div>
+          <div class="quota-bar-track"><div class="quota-bar-fill${perc >= 100 ? " quota-piena" : ""}" style="width:${perc}%"></div></div>
+        </div>
+        <p class="hint" style="margin-top:.5rem">Stai provando Estima.AI gratuitamente in questo periodo di
+        test. A breve arriveranno gli abbonamenti a pagamento.</p>`;
+      return;
+    }
+
     if (!dati.abbonamento_disponibile) {
       w.innerHTML = "";
       return;
